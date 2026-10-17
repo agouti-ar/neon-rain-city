@@ -146,6 +146,152 @@
     scene.add(islandGroup);
 
     // ========================================================
+    // 1b. CRISP CANVAS NEON SIGNAGE GENERATORS
+    // ========================================================
+    function createCrispNeonSignTexture({
+      width = 512,
+      height = 256,
+      text = '',
+      subText = '',
+      color = '#00f3ff',
+      glowColor = '#00f3ff',
+      coreColor = '#ffffff',
+      isVertical = false,
+      fontSize = 84,
+      subFontSize = 24,
+      border = true
+    }) {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+
+      // Dark sleek acrylic backing
+      ctx.fillStyle = '#070913';
+      ctx.fillRect(0, 0, width, height);
+
+      // Dual-pass glowing neon border
+      if (border) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(3, Math.round(width / 120));
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 18;
+        ctx.strokeRect(12, 12, width - 24, height - 24);
+
+        ctx.strokeStyle = coreColor;
+        ctx.lineWidth = Math.max(1.5, Math.round(width / 240));
+        ctx.shadowBlur = 4;
+        ctx.strokeRect(12, 12, width - 24, height - 24);
+      }
+
+      // Crisp Sans-Serif font stack with Meiryo & Segoe UI
+      const fontFam = '"Segoe UI", Meiryo, "Hiragino Sans", "Yu Gothic", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      if (isVertical) {
+        const chars = Array.from(text);
+        const usableHeight = height - (subText ? subFontSize * 2.8 + 24 : 24);
+        const lineSpacing = usableHeight / chars.length;
+        const startY = 16 + lineSpacing / 2;
+
+        ctx.font = `bold ${fontSize}px ${fontFam}`;
+
+        // Pass 1: Diffuse outer neon bloom
+        ctx.fillStyle = color;
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 24;
+        chars.forEach((ch, i) => {
+          ctx.fillText(ch, width / 2, startY + i * lineSpacing);
+        });
+
+        // Pass 2: Intense inner core
+        ctx.fillStyle = coreColor;
+        ctx.shadowBlur = 5;
+        chars.forEach((ch, i) => {
+          ctx.fillText(ch, width / 2, startY + i * lineSpacing);
+        });
+
+        if (subText) {
+          const subY = height - subFontSize - 10;
+          ctx.font = `bold ${subFontSize}px ${fontFam}`;
+          ctx.fillStyle = color;
+          ctx.shadowColor = glowColor;
+          ctx.shadowBlur = 12;
+          ctx.fillText(subText, width / 2, subY);
+          ctx.fillStyle = coreColor;
+          ctx.shadowBlur = 3;
+          ctx.fillText(subText, width / 2, subY);
+        }
+      } else {
+        const mainY = subText ? height * 0.42 : height * 0.5;
+
+        ctx.font = `bold ${fontSize}px ${fontFam}`;
+
+        // Pass 1: Diffuse outer neon bloom
+        ctx.fillStyle = color;
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 26;
+        ctx.fillText(text, width / 2, mainY);
+
+        // Pass 2: Hot white/bright core
+        ctx.fillStyle = coreColor;
+        ctx.shadowBlur = 6;
+        ctx.fillText(text, width / 2, mainY);
+
+        if (subText) {
+          const subY = height * 0.78;
+          ctx.font = `bold ${subFontSize}px ${fontFam}`;
+          ctx.fillStyle = color;
+          ctx.shadowColor = glowColor;
+          ctx.shadowBlur = 14;
+          ctx.fillText(subText, width / 2, subY);
+          ctx.fillStyle = coreColor;
+          ctx.shadowBlur = 3;
+          ctx.fillText(subText, width / 2, subY);
+        }
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 4;
+      return texture;
+    }
+
+    function createSignMesh(w, h, d, texture, doubleSided = false) {
+      const group = new THREE.Group();
+
+      // Backing chassis box
+      const boxGeo = new THREE.BoxGeometry(w, h, d);
+      const boxMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0c16,
+        roughness: 0.5,
+        metalness: 0.4
+      });
+      const chassis = new THREE.Mesh(boxGeo, boxMat);
+      group.add(chassis);
+
+      // Glowing front face (toneMapped: false ensures vivid neon punch)
+      const faceGeo = new THREE.PlaneGeometry(w - 0.02, h - 0.02);
+      const faceMat = new THREE.MeshBasicMaterial({
+        map: texture,
+        toneMapped: false
+      });
+      const frontFace = new THREE.Mesh(faceGeo, faceMat);
+      frontFace.position.z = d / 2 + 0.005;
+      group.add(frontFace);
+
+      if (doubleSided) {
+        const backFace = new THREE.Mesh(faceGeo, faceMat);
+        backFace.position.z = -d / 2 - 0.005;
+        backFace.rotation.y = Math.PI;
+        group.add(backFace);
+      }
+
+      return group;
+    }
+
+    // ========================================================
     // 2. MATERIALS PALETTE (Balanced Metalness for Wet Sheen)
     // ========================================================
     // Important: metalness kept around 0.25 - 0.3 so surfaces don't black out without envMap!
@@ -306,6 +452,15 @@
     const streetLampLight = new THREE.PointLight(0x38bdf8, 3.2, 12, 1.6);
     streetLampLight.position.set(3.4, 4.4, 4.0);
     islandGroup.add(streetLampLight);
+
+    // Soft Violet-Blue Void Under-Island Light (emphasizes island levitating in air)
+    const underIslandLight = new THREE.PointLight(0x6366f1, 5.5, 26, 1.8);
+    underIslandLight.position.set(0, -8.5, 0);
+    islandGroup.add(underIslandLight);
+
+    const underIslandVoidGlow = new THREE.PointLight(0x7c3aed, 4.0, 20, 1.6);
+    underIslandVoidGlow.position.set(0, -12.0, 0);
+    islandGroup.add(underIslandVoidGlow);
 
     // ========================================================
     // 4. FLOATING ISLAND PLATFORM & UNDERBELLY (Voxel/Rock Depth)
@@ -600,20 +755,43 @@
     beacon.position.y = 8.8;
     pagodaGroup.add(beacon);
 
-    // --- NEON SIGNBOARDS ON PAGODA ---
-    // Vertical "RAMEN" sign board
-    const vSignBoard = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.2, 0.6), MAT.timberDark);
-    vSignBoard.position.set(2.32, 2.2, 1.4);
-    pagodaGroup.add(vSignBoard);
+    // --- CRISP CANVAS NEON SIGNBOARDS ON PAGODA ---
+    // 1. «ラーメン 24H» (Ramen) in warm golden-orange neon directly above the counter shelf
+    const ramenTex = createCrispNeonSignTexture({
+      width: 512,
+      height: 256,
+      text: 'ラーメン 24H',
+      subText: 'RAMEN NOODLES // 24H OPEN',
+      color: '#ff9900',
+      glowColor: '#ffaa00',
+      coreColor: '#fffbe6',
+      fontSize: 72,
+      subFontSize: 22
+    });
+    const ramenSign = createSignMesh(2.6, 0.68, 0.08, ramenTex, false);
+    ramenSign.position.set(0, 2.36, 2.32);
+    pagodaGroup.add(ramenSign);
 
-    const vSignNeon = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.8, 0.42), MAT.neonPink);
-    vSignNeon.position.set(2.34, 2.2, 1.4);
-    pagodaGroup.add(vSignNeon);
+    // 2. «義体» (Cyberware / Implants) in sleek violet neon on pagoda corner bracket
+    const gitaiTex = createCrispNeonSignTexture({
+      width: 512,
+      height: 256,
+      text: '義体',
+      subText: 'CYBERWARE',
+      color: '#b026ff',
+      glowColor: '#9333ea',
+      coreColor: '#faf5ff',
+      fontSize: 98,
+      subFontSize: 26
+    });
+    const gitaiSign = createSignMesh(1.15, 0.68, 0.08, gitaiTex, true);
+    gitaiSign.position.set(2.34, 2.2, 1.4);
+    gitaiSign.rotation.y = Math.PI / 2;
+    pagodaGroup.add(gitaiSign);
 
-    // Horizontal "24H" Neon Sign
-    const hSign = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.35, 0.08), MAT.neonAmber);
-    hSign.position.set(0, 2.45, 2.3);
-    pagodaGroup.add(hSign);
+    const gitaiGlow = new THREE.PointLight(0xa855f7, 2.2, 5, 2.0);
+    gitaiGlow.position.set(2.4, 2.2, 1.4);
+    pagodaGroup.add(gitaiGlow);
 
     // ROOFTOP HOLOGRAM: Spinning Wireframe Multilayer Rings with Inner Icosahedron
     const holo1 = new THREE.Group();
@@ -658,14 +836,56 @@
       });
     }
 
-    // Large Vertical Neon Signboard: "ホテル" (HOTEL) on bracket
-    const hotelSignBoard = new THREE.Mesh(new THREE.BoxGeometry(0.15, 3.4, 0.75), MAT.timberDark);
-    hotelSignBoard.position.set(-1.92, 3.2, 0.8);
-    hotelGroup.add(hotelSignBoard);
+    // Large Vertical Neon Signboard: «カプセルホテル» (Capsule Hotel) in juicy turquoise/cyan neon
+    const hotelTex = createCrispNeonSignTexture({
+      width: 512,
+      height: 1024,
+      text: 'カプセルホテル',
+      subText: 'CAPSULE HOTEL',
+      color: '#00f3ff',
+      glowColor: '#00c8ff',
+      coreColor: '#e0ffff',
+      isVertical: true,
+      fontSize: 64,
+      subFontSize: 28
+    });
+    const hotelSign = createSignMesh(0.72, 3.4, 0.12, hotelTex, true);
+    hotelSign.position.set(-1.95, 3.2, 0.8);
+    hotelGroup.add(hotelSign);
 
-    const hotelSignNeon = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.0, 0.55), MAT.neonPurple);
-    hotelSignNeon.position.set(-1.94, 3.2, 0.8);
-    hotelGroup.add(hotelSignNeon);
+    // Structural mounting brackets for hotel vertical sign
+    [1.8, 4.6].forEach(yPos => {
+      const rod = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, 0.06), MAT.metalPipe);
+      rod.position.set(-1.88, yPos, 0.8);
+      hotelGroup.add(rod);
+    });
+
+    // Rooftop Scarlet/Red Neon Billboard: «荒坂» (ARASAKA) with industrial scaffold truss
+    const arasakaTex = createCrispNeonSignTexture({
+      width: 512,
+      height: 256,
+      text: '荒坂',
+      subText: 'A R A S A K A',
+      color: '#ff1744',
+      glowColor: '#ff003b',
+      coreColor: '#ffffff',
+      fontSize: 104,
+      subFontSize: 28
+    });
+    const arasakaSign = createSignMesh(2.5, 1.25, 0.1, arasakaTex, false);
+    arasakaSign.position.set(0, 6.1, 1.35);
+    hotelGroup.add(arasakaSign);
+
+    // Industrial steel support legs for Arasaka billboard
+    [-0.95, 0.95].forEach(xP => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.75, 6), MAT.metalPipe);
+      leg.position.set(xP, 5.58, 1.35);
+      hotelGroup.add(leg);
+    });
+
+    const arasakaGlow = new THREE.PointLight(0xff1744, 2.5, 6, 2.0);
+    arasakaGlow.position.set(0, 6.2, 1.5);
+    hotelGroup.add(arasakaGlow);
 
     // Rooftop Solar Panel & Satellite Dish
     const solarPanel = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 1.2), MAT.roofTile);
@@ -1031,6 +1251,146 @@
     }
     scene.add(cloudsGroup);
 
+    // ========================================================
+    // 12b. DISTANT FLYING SPEEDERS WITH NEON LIGHT TRAILS
+    // ========================================================
+    function createNeonTrailTexture(colorHex) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+
+      const grad = ctx.createLinearGradient(0, 0, 256, 0);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(0.3, 'rgba(0,0,0,0)');
+      grad.addColorStop(0.75, colorHex);
+      grad.addColorStop(1.0, '#ffffff');
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 256, 32);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function createFlyingSpeeder({
+      bodyColor = 0x161a24,
+      lightColorHex = '#ff1a35',
+      lightColorNum = 0xff1a35,
+      headlightColor = 0x38bdf8,
+      trailLength = 6.2
+    }) {
+      const speederGroup = new THREE.Group();
+
+      // Sleek low-poly aerodynamic chassis
+      const bodyGeo = new THREE.BoxGeometry(1.4, 0.22, 0.52);
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: bodyColor,
+        roughness: 0.35,
+        metalness: 0.5
+      });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      speederGroup.add(body);
+
+      // Angled nose hood
+      const noseGeo = new THREE.ConeGeometry(0.32, 0.45, 4);
+      noseGeo.rotateZ(-Math.PI / 2);
+      noseGeo.rotateY(Math.PI / 4);
+      const nose = new THREE.Mesh(noseGeo, bodyMat);
+      nose.position.set(0.85, 0, 0);
+      speederGroup.add(nose);
+
+      // Tinted cyber cockpit canopy
+      const canopyGeo = new THREE.BoxGeometry(0.55, 0.16, 0.34);
+      const canopyMat = new THREE.MeshStandardMaterial({
+        color: 0x0a101d,
+        roughness: 0.1,
+        metalness: 0.8,
+        emissive: 0x0284c7,
+        emissiveIntensity: 0.35
+      });
+      const canopy = new THREE.Mesh(canopyGeo, canopyMat);
+      canopy.position.set(0.12, 0.14, 0);
+      speederGroup.add(canopy);
+
+      // Stabilizer wings
+      [-0.32, 0.32].forEach(z => {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.04, 0.22), bodyMat);
+        wing.position.set(-0.15, -0.02, z);
+        speederGroup.add(wing);
+      });
+
+      // Front Headlights
+      [-0.16, 0.16].forEach(z => {
+        const hl = new THREE.Mesh(
+          new THREE.SphereGeometry(0.06, 8, 8),
+          new THREE.MeshBasicMaterial({ color: headlightColor, toneMapped: false })
+        );
+        hl.position.set(1.0, 0, z);
+        speederGroup.add(hl);
+      });
+
+      // Rear Engine Thrusters
+      [-0.18, 0.18].forEach(z => {
+        const tl = new THREE.Mesh(
+          new THREE.BoxGeometry(0.06, 0.1, 0.12),
+          new THREE.MeshBasicMaterial({ color: lightColorNum, toneMapped: false })
+        );
+        tl.position.set(-0.72, 0.02, z);
+        speederGroup.add(tl);
+      });
+
+      // Neon Light Trails (Horizontal & Vertical Cross-Ribbons for 360° visibility)
+      const trailTex = createNeonTrailTexture(lightColorHex);
+      const trailMat = new THREE.MeshBasicMaterial({
+        map: trailTex,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        toneMapped: false
+      });
+
+      [-0.18, 0.18].forEach(z => {
+        const trailHGeo = new THREE.PlaneGeometry(trailLength, 0.08);
+        const trailH = new THREE.Mesh(trailHGeo, trailMat);
+        trailH.rotation.x = Math.PI / 2;
+        trailH.position.set(-0.72 - trailLength / 2, 0.02, z);
+        speederGroup.add(trailH);
+
+        const trailVGeo = new THREE.PlaneGeometry(trailLength, 0.08);
+        const trailV = new THREE.Mesh(trailVGeo, trailMat);
+        trailV.position.set(-0.72 - trailLength / 2, 0.02, z);
+        speederGroup.add(trailV);
+      });
+
+      return speederGroup;
+    }
+
+    // Speeder 1: Lower corridor, travels along +X with scarlet neon light trails
+    const speeder1 = createFlyingSpeeder({
+      bodyColor: 0x161a24,
+      lightColorHex: '#ff1a35',
+      lightColorNum: 0xff1a35,
+      headlightColor: 0x38bdf8,
+      trailLength: 6.5
+    });
+    speeder1.position.set(-15, 6.0, -15.0);
+    scene.add(speeder1);
+
+    // Speeder 2: Higher corridor, travels along -X with electric cyan neon light trails
+    const speeder2 = createFlyingSpeeder({
+      bodyColor: 0x181e2b,
+      lightColorHex: '#00f3ff',
+      lightColorNum: 0x00f3ff,
+      headlightColor: 0xffd166,
+      trailLength: 7.2
+    });
+    speeder2.rotation.y = Math.PI; // Face -X direction
+    speeder2.position.set(12, 8.8, -18.5);
+    scene.add(speeder2);
+
     // Hide loader smoothly once scene is ready
     setTimeout(() => {
       const loader = document.getElementById('loader');
@@ -1168,6 +1528,22 @@
 
       // 11. Slow Void Clouds Drift
       cloudsGroup.rotation.y = time * 0.015;
+
+      // 11b. Distant Flying Speeders Horizontal Traffic & Organic Bobbing
+      speeder1.position.x += 8.2 * delta;
+      speeder1.position.y = 6.0 + Math.sin(time * 2.2) * 0.14;
+      if (speeder1.position.x > 35) {
+        speeder1.position.x = -35;
+      }
+
+      speeder2.position.x -= 10.5 * delta;
+      speeder2.position.y = 8.8 + Math.cos(time * 1.9) * 0.16;
+      if (speeder2.position.x < -35) {
+        speeder2.position.x = 35;
+      }
+
+      // Gentle pulsing of under-island void levitation light
+      underIslandLight.intensity = 5.2 + 0.6 * Math.sin(time * 2.0);
 
       // 12. Render Frame
       renderer.render(scene, camera);
