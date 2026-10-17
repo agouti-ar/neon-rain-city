@@ -291,6 +291,36 @@
       return group;
     }
 
+    function createWaterfallTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+
+      // Translucent cyan base tint
+      ctx.fillStyle = 'rgba(0, 243, 255, 0.22)';
+      ctx.fillRect(0, 0, 128, 512);
+
+      // Fast vertical streaks of rushing water and neon foam
+      for (let i = 0; i < 40; i++) {
+        const x = Math.random() * 128;
+        const w = 1.5 + Math.random() * 5.5;
+        const grad = ctx.createLinearGradient(0, 0, 0, 512);
+        grad.addColorStop(0, 'rgba(0, 243, 255, 0.35)');
+        grad.addColorStop(0.2 + Math.random() * 0.3, '#ffffff');
+        grad.addColorStop(0.7 + Math.random() * 0.25, 'rgba(0, 243, 255, 0.6)');
+        grad.addColorStop(1, 'rgba(0, 243, 255, 0.35)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, 0, w, 512);
+      }
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(1, 2.5);
+      return tex;
+    }
+
     // ========================================================
     // 2. MATERIALS PALETTE (Balanced Metalness for Wet Sheen)
     // ========================================================
@@ -624,6 +654,145 @@
     islandGroup.add(dripPoints);
 
     // ========================================================
+    // 4c. CYBERPUNK EDGE WATERFALL (Cascading Neon-Cyan Torrent)
+    // ========================================================
+    const waterfallGroup = new THREE.Group();
+    waterfallGroup.position.set(-7.5, 0, 3.8);
+
+    // Industrial Spillway Basin Chute jutting over edge
+    const sluiceChute = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 0.35, 1.4),
+      MAT.metalPipe
+    );
+    sluiceChute.position.set(-0.35, -0.12, 0);
+    waterfallGroup.add(sluiceChute);
+
+    // Neon Cyan Warning Lip along edge of chute
+    const chuteLip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.38, 1.42),
+      MAT.neonCyan
+    );
+    chuteLip.position.set(-1.15, -0.1, 0);
+    waterfallGroup.add(chuteLip);
+
+    // Drainage intake grating on the sidewalk
+    const grate = new THREE.Mesh(
+      new THREE.BoxGeometry(1.1, 0.04, 1.1),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.7, metalness: 0.6 })
+    );
+    grate.position.set(0.65, 0.25, 0);
+    waterfallGroup.add(grate);
+
+    const grateGlow = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.02, 0.9),
+      MAT.neonCyan
+    );
+    grateGlow.position.set(0.65, 0.24, 0);
+    waterfallGroup.add(grateGlow);
+
+    // Twin heavy discharge pipes jutting out into void
+    [-0.35, 0.35].forEach(zP => {
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 1.5, 8), MAT.metalPipe);
+      p.rotation.z = Math.PI / 2;
+      p.position.set(-0.35, -0.18, zP);
+      waterfallGroup.add(p);
+    });
+
+    // Cascading semi-transparent neon water sheets
+    const waterfallTex = createWaterfallTexture();
+    const waterSheetMat = new THREE.MeshBasicMaterial({
+      map: waterfallTex,
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    // Main cascading sheet
+    const mainSheet = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 13.5, 1, 8), waterSheetMat);
+    mainSheet.rotation.y = -Math.PI / 2;
+    mainSheet.position.set(-0.62, -6.85, 0);
+    waterfallGroup.add(mainSheet);
+
+    // Secondary inner cascading sheet for optical depth
+    const innerSheet = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 12.8, 1, 8), waterSheetMat);
+    innerSheet.rotation.y = -Math.PI / 2;
+    innerSheet.position.set(-0.45, -6.5, 0);
+    waterfallGroup.add(innerSheet);
+
+    // Falling glowing water particle droplets
+    const wfDropCount = 130;
+    const wfDropGeo = new THREE.BufferGeometry();
+    const wfDropPositions = new Float32Array(wfDropCount * 3);
+    const wfDropData = [];
+
+    for (let i = 0; i < wfDropCount; i++) {
+      const x = -0.5 - Math.random() * 0.35;
+      const y = -0.1 - Math.random() * 13.0;
+      const z = (Math.random() - 0.5) * 1.25;
+
+      wfDropPositions[i * 3] = x;
+      wfDropPositions[i * 3 + 1] = y;
+      wfDropPositions[i * 3 + 2] = z;
+
+      wfDropData.push({
+        origX: x,
+        origZ: z,
+        speed: 13.0 + Math.random() * 6.5
+      });
+    }
+
+    wfDropGeo.setAttribute('position', new THREE.BufferAttribute(wfDropPositions, 3));
+    const wfDropMat = new THREE.PointsMaterial({
+      color: 0x67e8f9,
+      size: 0.22,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false
+    });
+    const wfDropParticles = new THREE.Points(wfDropGeo, wfDropMat);
+    waterfallGroup.add(wfDropParticles);
+
+    // Ethereal splash foam rings at the base in the void
+    const wfFoamCount = 6;
+    const wfFoamGeo = new THREE.RingGeometry(0.18, 0.85, 16);
+    wfFoamGeo.rotateX(-Math.PI / 2);
+    const wfFoamMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const wfFoamMesh = new THREE.InstancedMesh(wfFoamGeo, wfFoamMat, wfFoamCount);
+    waterfallGroup.add(wfFoamMesh);
+
+    const wfFoamData = [];
+    const wfDummy = new THREE.Object3D();
+    for (let i = 0; i < wfFoamCount; i++) {
+      wfFoamData.push({
+        age: Math.random(),
+        maxAge: 0.6 + Math.random() * 0.45,
+        offsetX: -0.55 + (Math.random() - 0.5) * 0.35,
+        offsetY: (Math.random() - 0.5) * 0.4,
+        offsetZ: (Math.random() - 0.5) * 0.7
+      });
+    }
+
+    // Glowing Neon Lights on Waterfall
+    const waterfallLight = new THREE.PointLight(0x00f3ff, 4.2, 14, 1.8);
+    waterfallLight.position.set(-0.7, -3.2, 0);
+    waterfallGroup.add(waterfallLight);
+
+    const waterfallBottomGlow = new THREE.PointLight(0x0284c7, 3.5, 12, 1.6);
+    waterfallBottomGlow.position.set(-0.8, -12.0, 0);
+    waterfallGroup.add(waterfallBottomGlow);
+
+    islandGroup.add(waterfallGroup);
+
+    // ========================================================
     // 5. CYBER RAMEN PAGODA (Tiered Curved Roofs & Details)
     // ========================================================
     const pagodaGroup = new THREE.Group();
@@ -682,10 +851,70 @@
       pagodaGroup.add(leg);
     });
 
-    // Glowing traditional Paper Lantern (Chōchin) hanging outside
-    const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.45, 8), MAT.neonAmber);
-    lantern.position.set(1.9, 2.0, 2.3);
-    pagodaGroup.add(lantern);
+    // Chain of 3 Traditional Round Japanese Paper Lanterns (Chōchin)
+    const lanternChain = new THREE.Group();
+    lanternChain.position.set(0, 2.15, 2.36);
+
+    const wire = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.015, 0.015, 2.4, 6),
+      MAT.metalPipe
+    );
+    wire.rotation.z = Math.PI / 2;
+    wire.position.y = 0.28;
+    lanternChain.add(wire);
+
+    const paperLanterns = [];
+    const lanternMat = new THREE.MeshStandardMaterial({
+      color: 0xff2a14,
+      emissive: 0xff3b00,
+      emissiveIntensity: 1.25,
+      roughness: 0.6
+    });
+
+    [-0.9, 0, 0.9].forEach((lx) => {
+      const lGroup = new THREE.Group();
+      lGroup.position.set(lx, 0, 0);
+
+      // Top suspension ring and dark wooden cap
+      const topCap = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.04, 10), MAT.timberDark);
+      topCap.position.y = 0.24;
+      lGroup.add(topCap);
+
+      const hanger = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.08, 4), MAT.metalPipe);
+      hanger.position.y = 0.28;
+      lGroup.add(hanger);
+
+      // Round spherical paper body
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10), lanternMat);
+      body.scale.set(1.0, 1.2, 1.0);
+      lGroup.add(body);
+
+      // Black horizontal band across paper lantern
+      const stripe = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.205, 0.205, 0.04, 14, 1, true),
+        MAT.timberDark
+      );
+      lGroup.add(stripe);
+
+      // Bottom wooden cap and tassel
+      const botCap = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.07, 0.04, 10), MAT.timberDark);
+      botCap.position.y = -0.24;
+      lGroup.add(botCap);
+
+      const tassel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.12, 6), MAT.cyberRed);
+      tassel.position.y = -0.32;
+      lGroup.add(tassel);
+
+      // Warm amber/red PointLight inside each lantern
+      const lLight = new THREE.PointLight(0xff5500, 1.6, 4.0, 2.0);
+      lLight.position.set(0, -0.05, 0);
+      lGroup.add(lLight);
+
+      lanternChain.add(lGroup);
+      paperLanterns.push(lGroup);
+    });
+
+    pagodaGroup.add(lanternChain);
 
     // --- PAGODA ROOF TIER 1 ---
     const roof1Geo = new THREE.ConeGeometry(4.0, 1.0, 4);
@@ -756,20 +985,20 @@
     pagodaGroup.add(beacon);
 
     // --- CRISP CANVAS NEON SIGNBOARDS ON PAGODA ---
-    // 1. «ラーメン 24H» (Ramen) in warm golden-orange neon directly above the counter shelf
+    // 1. «ラーメン» (Ramen) in bold warm golden neon directly above the counter shelf
     const ramenTex = createCrispNeonSignTexture({
       width: 512,
       height: 256,
-      text: 'ラーメン 24H',
-      subText: 'RAMEN NOODLES // 24H OPEN',
-      color: '#ff9900',
-      glowColor: '#ffaa00',
-      coreColor: '#fffbe6',
-      fontSize: 72,
-      subFontSize: 22
+      text: 'ラーメン',
+      subText: '24H RAMEN BAR',
+      color: '#ffaa00',
+      glowColor: '#ff9500',
+      coreColor: '#fffef0',
+      fontSize: 126,
+      subFontSize: 26
     });
-    const ramenSign = createSignMesh(2.6, 0.68, 0.08, ramenTex, false);
-    ramenSign.position.set(0, 2.36, 2.32);
+    const ramenSign = createSignMesh(3.2, 0.95, 0.08, ramenTex, false);
+    ramenSign.position.set(0, 2.52, 2.34);
     pagodaGroup.add(ramenSign);
 
     // 2. «義体» (Cyberware / Implants) in sleek violet neon on pagoda corner bracket
@@ -1087,88 +1316,150 @@
     islandGroup.add(steamParticles);
 
     // ========================================================
-    // 9. CENTRAL 3D HOLOGRAM OVER CROSSROADS
+    // 9. AKIRA / CYBERPUNK 2077 MOTORCYCLE (Yaiba Kusanagi Style)
     // ========================================================
-    const holoCenter = new THREE.Group();
-    holoCenter.position.set(0, 3.8, 0);
+    function createAkiraCyberBike() {
+      const bikeGroup = new THREE.Group();
 
-    const holoOcta = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.85, 0),
-      new THREE.MeshBasicMaterial({ color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.85 })
-    );
-    holoCenter.add(holoOcta);
-
-    const holoCore = new THREE.Mesh(
-      new THREE.SphereGeometry(0.32, 12, 12),
-      new THREE.MeshBasicMaterial({ color: 0xff0066, wireframe: true, transparent: true, opacity: 0.75 })
-    );
-    holoCenter.add(holoCore);
-
-    const holoRing = new THREE.Mesh(
-      new THREE.RingGeometry(1.15, 1.25, 24),
-      new THREE.MeshBasicMaterial({ color: 0xffaa00, side: THREE.DoubleSide, transparent: true, opacity: 0.7 })
-    );
-    holoRing.rotation.x = Math.PI / 2;
-    holoCenter.add(holoRing);
-
-    islandGroup.add(holoCenter);
-
-    // ========================================================
-    // 10. DRONES WITH VOLUMETRIC SPOTLIGHT CONES (ConeGeometry)
-    // ========================================================
-    function createDroneWithSearchlight(colorHex) {
-      const droneGroup = new THREE.Group();
-
-      // Chassis
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.5), MAT.metalPipe);
-      droneGroup.add(body);
-
-      // Glowing Neon Visor Eye
-      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.06), new THREE.MeshBasicMaterial({ color: colorHex }));
-      eye.position.set(0, 0, 0.26);
-      droneGroup.add(eye);
-
-      // 4 Neon Thruster Rings
-      [[-0.28, -0.28], [0.28, -0.28], [-0.28, 0.28], [0.28, 0.28]].forEach(([tx, tz]) => {
-        const ring = new THREE.Mesh(
-          new THREE.TorusGeometry(0.09, 0.025, 6, 12),
-          new THREE.MeshBasicMaterial({ color: colorHex })
-        );
-        ring.rotation.x = Math.PI / 2;
-        ring.position.set(tx, 0.06, tz);
-        droneGroup.add(ring);
+      const bodyRed = new THREE.MeshStandardMaterial({
+        color: 0xdd1122,
+        roughness: 0.22,
+        metalness: 0.35
+      });
+      const darkMetal = new THREE.MeshStandardMaterial({
+        color: 0x141722,
+        roughness: 0.45,
+        metalness: 0.6
+      });
+      const tireMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0c12,
+        roughness: 0.85,
+        metalness: 0.1
+      });
+      const neonWheelRim = new THREE.MeshBasicMaterial({
+        color: 0x00f3ff,
+        toneMapped: false
       });
 
-      // Semi-transparent Volumetric Light Cone
-      const coneHeight = 3.6;
-      const coneGeo = new THREE.ConeGeometry(1.2, coneHeight, 16, 1, true);
-      const coneMat = new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: 0.15,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
+      // 1. Front Wheel (diameter 0.6)
+      const fWheelGroup = new THREE.Group();
+      fWheelGroup.position.set(0.68, 0.3, 0);
+
+      const fTire = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.16, 16), tireMat);
+      fTire.rotation.x = Math.PI / 2;
+      fWheelGroup.add(fTire);
+
+      // Neon light ring stripes on front wheel
+      [-0.085, 0.085].forEach(zSide => {
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.02, 8, 18), neonWheelRim);
+        rim.position.z = zSide;
+        fWheelGroup.add(rim);
       });
-      const coneMesh = new THREE.Mesh(coneGeo, coneMat);
-      // Invert cone so apex is at drone and base is on the street
-      coneMesh.rotation.x = Math.PI;
-      coneMesh.position.y = -coneHeight / 2;
-      droneGroup.add(coneMesh);
+      bikeGroup.add(fWheelGroup);
 
-      // Matching SpotLight casting specular illumination on wet asphalt
-      const spot = new THREE.SpotLight(colorHex, 3.2, 9, Math.PI / 6, 0.45, 1.8);
-      spot.position.set(0, -0.1, 0);
-      spot.target.position.set(0, -5, 0);
-      droneGroup.add(spot);
-      droneGroup.add(spot.target);
+      // 2. Rear Wheel (larger, diameter 0.68)
+      const rWheelGroup = new THREE.Group();
+      rWheelGroup.position.set(-0.68, 0.34, 0);
 
-      islandGroup.add(droneGroup);
-      return droneGroup;
+      const rTire = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.22, 16), tireMat);
+      rTire.rotation.x = Math.PI / 2;
+      rWheelGroup.add(rTire);
+
+      // Neon light ring stripes on rear wheel
+      [-0.115, 0.115].forEach(zSide => {
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.022, 8, 18), neonWheelRim);
+        rim.position.z = zSide;
+        rWheelGroup.add(rim);
+      });
+      bikeGroup.add(rWheelGroup);
+
+      // 3. Lower Chassis Frame & Power Core
+      const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.2, 0.28), darkMetal);
+      chassis.position.set(0, 0.26, 0);
+      bikeGroup.add(chassis);
+
+      // 4. Iconic Long Aerodynamic Front Cowl (Akira Red)
+      const frontCowl = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.28, 0.36), bodyRed);
+      frontCowl.position.set(0.38, 0.44, 0);
+      frontCowl.rotation.z = -0.15;
+      bikeGroup.add(frontCowl);
+
+      // Sloped nose fairing
+      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.3), bodyRed);
+      nose.position.set(0.78, 0.38, 0);
+      nose.rotation.z = -0.28;
+      bikeGroup.add(nose);
+
+      // Tinted Canopy Windshield
+      const screenMat = new THREE.MeshStandardMaterial({
+        color: 0x05121e,
+        roughness: 0.1,
+        metalness: 0.9,
+        emissive: 0x00f3ff,
+        emissiveIntensity: 0.25
+      });
+      const windshield = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.2, 0.26), screenMat);
+      windshield.position.set(0.42, 0.62, 0);
+      windshield.rotation.z = -0.45;
+      bikeGroup.add(windshield);
+
+      // 5. Low-Slung Ergonomic Recumbent Rider Seat
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.24), darkMetal);
+      seat.position.set(-0.12, 0.45, 0);
+      bikeGroup.add(seat);
+
+      const seatBack = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.26, 0.24), darkMetal);
+      seatBack.position.set(-0.34, 0.54, 0);
+      seatBack.rotation.z = 0.2;
+      bikeGroup.add(seatBack);
+
+      // 6. Rear Streamlined Tail Cowl
+      const tailCowl = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.26, 0.34), bodyRed);
+      tailCowl.position.set(-0.52, 0.52, 0);
+      tailCowl.rotation.z = 0.12;
+      bikeGroup.add(tailCowl);
+
+      // 7. Chrome Exhaust Pipes
+      const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.75, 8), darkMetal);
+      exhaust.rotation.z = Math.PI / 2;
+      exhaust.position.set(-0.35, 0.22, 0.18);
+      bikeGroup.add(exhaust);
+
+      // 8. Handlebars with Cyber Cockpit Console
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.48), darkMetal);
+      bar.position.set(0.34, 0.68, 0);
+      bikeGroup.add(bar);
+
+      // 9. Cyber Headlight (crisp high-intensity beam)
+      const headlight = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 0.1, 0.22),
+        new THREE.MeshBasicMaterial({ color: 0xecfeff, toneMapped: false })
+      );
+      headlight.position.set(0.96, 0.38, 0);
+      bikeGroup.add(headlight);
+
+      // 10. Rear Tail Light (scarlet red neon)
+      const taillight = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 0.08, 0.22),
+        new THREE.MeshBasicMaterial({ color: 0xff1744, toneMapped: false })
+      );
+      taillight.position.set(-0.84, 0.56, 0);
+      bikeGroup.add(taillight);
+
+      // Under-glow neon onto the street
+      const underGlow = new THREE.PointLight(0x00f3ff, 1.8, 3.5, 2.0);
+      underGlow.position.set(0, 0.12, 0);
+      bikeGroup.add(underGlow);
+
+      return bikeGroup;
     }
 
-    const drone1 = createDroneWithSearchlight(0x00f3ff);
-    const drone2 = createDroneWithSearchlight(0xff0066);
+    // Parked at the sidewalk curb near the pedestrian crosswalk zebra
+    const akiraBike = createAkiraCyberBike();
+    akiraBike.position.set(-3.2, 0.14, 1.4);
+    akiraBike.rotation.y = -0.22;
+    akiraBike.castShadow = true;
+    islandGroup.add(akiraBike);
 
     // ========================================================
     // 11. DELICATE SHORT FAST RAIN STREAKS & RIPPLES
@@ -1414,37 +1705,45 @@
       // 2. Turntable OrbitControls
       controls.update();
 
-      // 3. Central Hologram Animation
-      holoOcta.rotation.y = time * 0.65;
-      holoOcta.rotation.x = time * 0.4;
-      holoCore.rotation.y = -time * 0.9;
-      holoRing.rotation.z = time * 0.75;
-      const pulseCore = 0.9 + 0.12 * Math.sin(time * 3.5);
-      holoCore.scale.set(pulseCore, pulseCore, pulseCore);
-
-      // 4. Rooftop Holograms Rotation
+      // 3. Rooftop Holograms Rotation
       holo1.rotation.y = time * 0.8;
       h1Core.rotation.x = time * 0.9;
       h1Core.rotation.y = time * 0.6;
       holo2.rotation.y = -time * 0.7;
       holo2.rotation.x = Math.sin(time * 0.9) * 0.2;
 
-      // 5. Complex Trajectory Patrol Drones Movement
-      const d1Angle = time * 0.65;
-      drone1.position.set(
-        Math.cos(d1Angle) * 7.8,
-        3.8 + Math.sin(time * 1.6) * 0.45,
-        Math.sin(d1Angle) * 7.8 + Math.cos(time * 0.8) * 1.2
-      );
-      drone1.rotation.y = -d1Angle + Math.PI / 2;
+      // 4. Traditional Paper Lanterns Gentle Swaying
+      paperLanterns.forEach((l, idx) => {
+        l.rotation.z = Math.sin(time * 2.2 + idx * 1.3) * 0.05;
+      });
 
-      const d2Angle = -time * 0.52 + Math.PI;
-      drone2.position.set(
-        Math.cos(d2Angle) * 6.5,
-        4.8 + Math.cos(time * 1.8) * 0.5,
-        Math.sin(d2Angle) * 6.5 + Math.sin(time * 0.9) * 1.0
-      );
-      drone2.rotation.y = -d2Angle + Math.PI / 2;
+      // 5. Cyberpunk Edge Waterfall Animation (Flow, Droplets & Foam)
+      waterfallTex.offset.y -= delta * 2.8;
+
+      const wfPos = wfDropGeo.attributes.position.array;
+      for (let i = 0; i < wfDropCount; i++) {
+        const d = wfDropData[i];
+        wfPos[i * 3 + 1] -= d.speed * delta;
+        if (wfPos[i * 3 + 1] < -13.5) {
+          wfPos[i * 3 + 1] = -0.1;
+          wfPos[i * 3] = -0.5 - Math.random() * 0.35;
+          wfPos[i * 3 + 2] = (Math.random() - 0.5) * 1.25;
+        }
+      }
+      wfDropGeo.attributes.position.needsUpdate = true;
+
+      for (let i = 0; i < wfFoamCount; i++) {
+        const f = wfFoamData[i];
+        f.age += delta;
+        if (f.age >= f.maxAge) f.age = 0;
+        const prog = f.age / f.maxAge;
+        const sc = 0.2 + prog * 1.1;
+        wfDummy.position.set(f.offsetX, -12.5 + f.offsetY, f.offsetZ);
+        wfDummy.scale.set(sc, sc, sc);
+        wfDummy.updateMatrix();
+        wfFoamMesh.setMatrixAt(i, wfDummy.matrix);
+      }
+      wfFoamMesh.instanceMatrix.needsUpdate = true;
 
       // 6. Neon Lights Pulsing & Subtle Twinkle
       const p1 = 0.92 + 0.08 * Math.sin(time * 4.2);
