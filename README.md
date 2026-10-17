@@ -43,15 +43,29 @@ The goal of this project was to achieve a dense, atmospheric cyberpunk environme
 
 ## Running Locally
 
-Clone the repository and serve it using any lightweight static server:
+Clone the repository:
 
 ```bash
 git clone https://github.com/agouti-ar/neon-rain-city.git
 cd neon-rain-city
+```
 
-# Python 3:
+Serve it locally using any lightweight static web server:
+
+**Option A (Python 3):**
+```bash
 python -m http.server 5173
+```
 
-# Or Node.js:
+**Option B (Node.js):**
+```bash
 npx serve .
 ```
+
+Then open `http://localhost:5173/index.html` in your browser.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
