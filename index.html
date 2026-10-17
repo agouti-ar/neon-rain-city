@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cyberpunk Floating Island — 3D Low-Poly Diorama</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 40%, #1a0f35 0%, #0b061d 60%, #05020e 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Soft atmospheric vignette */
+    .vignette {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 2;
+      background: radial-gradient(circle at center, transparent 45%, rgba(11, 6, 29, 0.4) 80%, rgba(6, 2, 16, 0.82) 100%);
+    }
+
+    /* Minimalist Loading Screen */
+    #loader {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #0b061d;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      transition: opacity 0.5s ease, visibility 0.5s ease;
+    }
+
+    #loader.hidden {
+      opacity: 0;
+      visibility: hidden;
+    }
+
+    .loader-ring {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(0, 243, 255, 0.2);
+      border-top-color: #00f3ff;
+      border-right-color: #ff007f;
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+
+  <!-- Import map for Three.js & Addons -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <!-- Loading Screen -->
+  <div id="loader">
+    <div class="loader-ring"></div>
+  </div>
+
+  <!-- 3D WebGL Canvas -->
+  <div id="canvas-container"></div>
+  <div class="vignette"></div>
+
+  <!-- Main 3D Animation Script -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ========================================================
+    // 1. RENDERER, SCENE, FOG & ISOMETRIC CAMERA
+    // ========================================================
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+
+    // Atmospheric deep dark-purple fog (not pitch black!)
+    scene.background = new THREE.Color(0x0b061d);
+    scene.fog = new THREE.FogExp2(0x0b061d, 0.012);
+
+    const camera = new THREE.PerspectiveCamera(36, window.innerWidth / window.innerHeight, 0.1, 150);
+    camera.position.set(25, 17, 25);
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: 'high-performance',
+      alpha: false
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.3;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    // Smooth turntable camera auto-rotation
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.85; // Cozy cinematic rotation speed
+    controls.minDistance = 14;
+    controls.maxDistance = 48;
+    controls.maxPolarAngle = Math.PI / 2 - 0.05;
+    controls.target.set(0, 2.8, 0);
+
+    // Main Floating Island Master Group (levitates organically)
+    const islandGroup = new THREE.Group();
+    scene.add(islandGroup);
+
+    // ========================================================
+    // 2. MATERIALS PALETTE (Balanced Metalness for Wet Sheen)
+    // ========================================================
+    // Important: metalness kept around 0.25 - 0.3 so surfaces don't black out without envMap!
+    const MAT = {
+      // Wet Asphalt: low roughness (0.12) + moderate metalness (0.28) for juicy pointlight specular highlights
+      asphaltWet: new THREE.MeshStandardMaterial({
+        color: 0x1a1f30,
+        roughness: 0.12,
+        metalness: 0.28
+      }),
+      // Sidewalk concrete
+      sidewalk: new THREE.MeshStandardMaterial({
+        color: 0x333e56,
+        roughness: 0.45,
+        metalness: 0.15
+      }),
+      // Road Markings (Yellow & White)
+      roadYellow: new THREE.MeshStandardMaterial({
+        color: 0xffaa00,
+        emissive: 0xff9900,
+        emissiveIntensity: 0.6,
+        roughness: 0.2
+      }),
+      roadWhite: new THREE.MeshStandardMaterial({
+        color: 0xe2e8f0,
+        roughness: 0.25
+      }),
+      // Wet Roof Tiles
+      roofTile: new THREE.MeshStandardMaterial({
+        color: 0x1e2438,
+        roughness: 0.14,
+        metalness: 0.3
+      }),
+      // Cyber timber / dark frames
+      timberDark: new THREE.MeshStandardMaterial({
+        color: 0x161a26,
+        roughness: 0.5,
+        metalness: 0.2
+      }),
+      // Traditional vermilion red accents
+      cyberRed: new THREE.MeshStandardMaterial({
+        color: 0xd92626,
+        roughness: 0.35,
+        metalness: 0.2
+      }),
+      // Glowing Window Lattices & Screens
+      windowWarm: new THREE.MeshStandardMaterial({
+        color: 0xffbe0b,
+        emissive: 0xffa000,
+        emissiveIntensity: 2.5,
+        roughness: 0.2
+      }),
+      windowCyan: new THREE.MeshStandardMaterial({
+        color: 0x00f3ff,
+        emissive: 0x00f3ff,
+        emissiveIntensity: 2.5,
+        roughness: 0.2
+      }),
+      // Vibrant Neon Materials (MeshBasicMaterial for pure luminous pop)
+      neonPink: new THREE.MeshBasicMaterial({
+        color: 0xff007f
+      }),
+      neonCyan: new THREE.MeshBasicMaterial({
+        color: 0x00f3ff
+      }),
+      neonPurple: new THREE.MeshBasicMaterial({
+        color: 0xb5179e
+      }),
+      neonAmber: new THREE.MeshBasicMaterial({
+        color: 0xffaa00
+      }),
+      // Sakura tree foliage (multitiered semi-transparent glowing pink/magenta clusters)
+      sakuraLeaves: new THREE.MeshStandardMaterial({
+        color: 0xff69b4,
+        emissive: 0xff1493,
+        emissiveIntensity: 1.1,
+        roughness: 0.35,
+        transparent: true,
+        opacity: 0.88
+      }),
+      sakuraTrunk: new THREE.MeshStandardMaterial({
+        color: 0x24151b,
+        roughness: 0.85
+      }),
+      // Floating island rock / voxel dirt underbelly
+      rockDark: new THREE.MeshStandardMaterial({
+        color: 0x181c2b,
+        roughness: 0.88,
+        metalness: 0.15
+      }),
+      rockAccent: new THREE.MeshStandardMaterial({
+        color: 0x23293d,
+        roughness: 0.82,
+        metalness: 0.2
+      }),
+      // Metallic pipes and structural girders
+      metalPipe: new THREE.MeshStandardMaterial({
+        color: 0x475569,
+        roughness: 0.35,
+        metalness: 0.6
+      }),
+      metalRust: new THREE.MeshStandardMaterial({
+        color: 0x854d0e,
+        roughness: 0.55,
+        metalness: 0.4
+      })
+    };
+
+    // ========================================================
+    // 3. ENHANCED LIGHTING (Hemisphere + Directional + PointLights)
+    // ========================================================
+    // 1. Hemisphere Light: violet sky & cyan ground for crisp edge definition
+    const hemiLight = new THREE.HemisphereLight(0x8866ff, 0x00d2ff, 1.5);
+    scene.add(hemiLight);
+
+    // 2. Directional Key Light with soft shadows
+    const dirLight = new THREE.DirectionalLight(0xd8b4fe, 1.3);
+    dirLight.position.set(15, 26, 12);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 1024;
+    dirLight.shadow.mapSize.height = 1024;
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 65;
+    dirLight.shadow.camera.left = -15;
+    dirLight.shadow.camera.right = 15;
+    dirLight.shadow.camera.top = 15;
+    dirLight.shadow.camera.bottom = -15;
+    dirLight.shadow.bias = -0.001;
+    scene.add(dirLight);
+
+    // 3. Strategic Colored PointLights for vibrant specular pools on wet asphalt:
+    // Warm Golden-Orange Light from the Ramen Bar
+    const ramenWarmLight = new THREE.PointLight(0xff9500, 4.6, 14, 1.7);
+    ramenWarmLight.position.set(-2.8, 2.2, -1.8);
+    islandGroup.add(ramenWarmLight);
+
+    // Hot Pink Light from Pagoda & Signs
+    const neonPinkLight = new THREE.PointLight(0xff007f, 4.2, 15, 1.8);
+    neonPinkLight.position.set(-3.8, 3.8, 1.6);
+    islandGroup.add(neonPinkLight);
+
+    // Electric Cyan / Turquoise Light from Hotel & Vending Machines
+    const neonCyanLight = new THREE.PointLight(0x00f3ff, 4.2, 15, 1.7);
+    neonCyanLight.position.set(3.8, 3.2, -2.2);
+    islandGroup.add(neonCyanLight);
+
+    // Lush Pink Glow right inside the Sakura Tree Canopy
+    const sakuraPinkLight = new THREE.PointLight(0xff1493, 4.0, 13, 1.8);
+    sakuraPinkLight.position.set(4.6, 3.2, 2.8);
+    islandGroup.add(sakuraPinkLight);
+
+    // Deep Violet Light from Hotel Signboard
+    const hotelPurpleLight = new THREE.PointLight(0xaa00ff, 3.5, 12, 1.8);
+    hotelPurpleLight.position.set(4.2, 5.2, -1.0);
+    islandGroup.add(hotelPurpleLight);
+
+    // Streetlamp Cyan Spotlight
+    const streetLampLight = new THREE.PointLight(0x38bdf8, 3.2, 12, 1.6);
+    streetLampLight.position.set(3.4, 4.4, 4.0);
+    islandGroup.add(streetLampLight);
+
+    // ========================================================
+    // 4. FLOATING ISLAND PLATFORM & UNDERBELLY (Voxel/Rock Depth)
+    // ========================================================
+    const platformW = 15;
+    const platformD = 15;
+    const platformH = 1.2;
+
+    // Wet Asphalt Surface Deck
+    const deckGeo = new THREE.BoxGeometry(platformW, platformH, platformD);
+    const deckMesh = new THREE.Mesh(deckGeo, MAT.asphaltWet);
+    deckMesh.position.y = -platformH / 2;
+    deckMesh.receiveShadow = true;
+    islandGroup.add(deckMesh);
+
+    // Sidewalk Raised Platforms (Left & Right)
+    const swGeoL = new THREE.BoxGeometry(4.6, 0.25, platformD - 0.2);
+    const swMeshL = new THREE.Mesh(swGeoL, MAT.sidewalk);
+    swMeshL.position.set(-5.2, 0.12, 0);
+    swMeshL.receiveShadow = true;
+    swMeshL.castShadow = true;
+    islandGroup.add(swMeshL);
+
+    const swGeoR = new THREE.BoxGeometry(4.6, 0.25, platformD - 0.2);
+    const swMeshR = new THREE.Mesh(swGeoR, MAT.sidewalk);
+    swMeshR.position.set(5.2, 0.12, 0);
+    swMeshR.receiveShadow = true;
+    swMeshR.castShadow = true;
+    islandGroup.add(swMeshR);
+
+    // Double Yellow Center Road Markings
+    const yLineGeo = new THREE.BoxGeometry(0.12, 0.02, platformD - 0.6);
+    const yLine1 = new THREE.Mesh(yLineGeo, MAT.roadYellow);
+    yLine1.position.set(-0.12, 0.01, 0);
+    islandGroup.add(yLine1);
+
+    const yLine2 = new THREE.Mesh(yLineGeo, MAT.roadYellow);
+    yLine2.position.set(0.12, 0.01, 0);
+    islandGroup.add(yLine2);
+
+    // Pedestrian Zebra Crosswalk Stripes
+    for (let i = -2.2; i <= 2.2; i += 0.7) {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.02, 1.8), MAT.roadWhite);
+      stripe.position.set(i, 0.01, 4.4);
+      islandGroup.add(stripe);
+    }
+
+    // Road Edge Guardrails & Caution Light Strips
+    [-1, 1].forEach((dir) => {
+      const zPos = dir * (platformD / 2 - 0.3);
+      for (let x = -2.6; x <= 2.6; x += 1.3) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.85, 0.12), MAT.metalPipe);
+        post.position.set(x, 0.42, zPos);
+        islandGroup.add(post);
+      }
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.14, 0.08), MAT.neonAmber);
+      rail.position.set(0, 0.68, zPos);
+      islandGroup.add(rail);
+
+      const hazLight = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.24), MAT.neonPink);
+      hazLight.position.set(dir * 2.5, 0.8, zPos);
+      islandGroup.add(hazLight);
+    });
+
+    // Deep Stepped Voxel / Rock Underbelly (Tapering 12 units down)
+    const rockSteps = [
+      { w: 14.4, d: 14.4, h: 1.1, y: -1.6 },
+      { w: 13.0, d: 13.0, h: 1.3, y: -2.7 },
+      { w: 11.2, d: 11.2, h: 1.5, y: -4.0 },
+      { w: 9.0,  d: 9.0,  h: 1.6, y: -5.4 },
+      { w: 6.8,  d: 6.8,  h: 1.8, y: -7.0 },
+      { w: 4.4,  d: 4.4,  h: 1.8, y: -8.6 },
+      { w: 2.2,  d: 2.2,  h: 1.8, y: -10.2 },
+      { w: 0.9,  d: 0.9,  h: 1.4, y: -11.6 }
+    ];
+
+    rockSteps.forEach((step, idx) => {
+      const stepMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(step.w, step.h, step.d),
+        idx % 2 === 0 ? MAT.rockDark : MAT.rockAccent
+      );
+      stepMesh.position.y = step.y;
+      stepMesh.receiveShadow = true;
+      stepMesh.castShadow = true;
+      islandGroup.add(stepMesh);
+    });
+
+    // Structural Steel I-Beam Girders supporting the island
+    const beamGeo = new THREE.BoxGeometry(0.25, 0.25, 12);
+    const beam1 = new THREE.Mesh(beamGeo, MAT.metalRust);
+    beam1.position.set(-3.5, -1.8, 0);
+    beam1.rotation.y = 0.35;
+    islandGroup.add(beam1);
+
+    const beam2 = new THREE.Mesh(beamGeo, MAT.metalRust);
+    beam2.position.set(3.5, -1.8, 0);
+    beam2.rotation.y = -0.35;
+    islandGroup.add(beam2);
+
+    // Multi-Cluster 3D Hanging Cables (CatmullRomCurve3 Curves under Island)
+    const cableRoutes = [
+      [[-4.5, -1.2, 4], [-2.5, -5.5, 2], [-0.5, -10.5, 0]],
+      [[4.5, -1.2, -4], [2.2, -6.2, -2], [0.4, -11.0, 0]],
+      [[-3.8, -1.2, -4.5], [-1.8, -5.0, -2.5], [0, -9.5, 0]],
+      [[3.8, -1.2, 4.5], [1.8, -5.2, 2.2], [0, -10.2, 0]],
+      [[-5.2, -1.2, 0], [-3.0, -7.0, 0.5], [-0.2, -11.8, 0]],
+      [[5.2, -1.2, 0], [3.0, -7.2, -0.5], [0.2, -11.8, 0]]
+    ];
+
+    cableRoutes.forEach((pts) => {
+      const vPts = pts.map(p => new THREE.Vector3(...p));
+      const curve = new THREE.CatmullRomCurve3(vPts);
+      const tubeGeo = new THREE.TubeGeometry(curve, 22, 0.05, 6, false);
+      const cable = new THREE.Mesh(tubeGeo, MAT.timberDark);
+      islandGroup.add(cable);
+    });
+
+    // Protruding Drainage Pipes jutting out from rock
+    [
+      { x: -6.0, y: -2.4, z: 2.2, rotZ: 0.32, mat: MAT.metalPipe },
+      { x: 5.8, y: -3.4, z: -1.8, rotZ: -0.38, mat: MAT.metalRust },
+      { x: -3.6, y: -4.8, z: -5.0, rotX: 0.42, mat: MAT.metalPipe },
+      { x: 2.8, y: -6.2, z: 3.5, rotX: -0.4, mat: MAT.metalRust }
+    ].forEach((pipe) => {
+      const pMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 2.4, 8), pipe.mat);
+      pMesh.position.set(pipe.x, pipe.y, pipe.z);
+      if (pipe.rotZ) pMesh.rotation.z = pipe.rotZ;
+      if (pipe.rotX) pMesh.rotation.x = pipe.rotX;
+      islandGroup.add(pMesh);
+    });
+
+    // Water Droplets Dripping from the Island into the Abyss
+    const dripCount = 36;
+    const dripGeo = new THREE.BufferGeometry();
+    const dripPositions = new Float32Array(dripCount * 3);
+    const dripData = [];
+
+    for (let i = 0; i < dripCount; i++) {
+      const x = (Math.random() - 0.5) * 8.5;
+      const z = (Math.random() - 0.5) * 8.5;
+      const y = -2 - Math.random() * 9;
+      dripPositions[i * 3] = x;
+      dripPositions[i * 3 + 1] = y;
+      dripPositions[i * 3 + 2] = z;
+      dripData.push({
+        origX: x,
+        origZ: z,
+        speed: 4.0 + Math.random() * 3.5,
+        startY: -1.2 - Math.random() * 2
+      });
+    }
+
+    dripGeo.setAttribute('position', new THREE.BufferAttribute(dripPositions, 3));
+    const dripMat = new THREE.PointsMaterial({
+      color: 0x38bdf8,
+      size: 0.16,
+      transparent: true,
+      opacity: 0.75
+    });
+    const dripPoints = new THREE.Points(dripGeo, dripMat);
+    islandGroup.add(dripPoints);
+
+    // ========================================================
+    // 5. CYBER RAMEN PAGODA (Tiered Curved Roofs & Details)
+    // ========================================================
+    const pagodaGroup = new THREE.Group();
+    pagodaGroup.position.set(-4.8, 0.25, -2.5);
+
+    // --- LEVEL 1: RAMEN SHOP STALL ---
+    const stallBase = new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.5, 4.4), MAT.timberDark);
+    stallBase.position.y = 1.25;
+    stallBase.castShadow = true;
+    stallBase.receiveShadow = true;
+    pagodaGroup.add(stallBase);
+
+    // Wooden bar counter opening
+    const counterOpening = new THREE.Mesh(
+      new THREE.BoxGeometry(2.8, 1.3, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x06080e, roughness: 0.85 })
+    );
+    counterOpening.position.set(0, 1.15, 2.1);
+    pagodaGroup.add(counterOpening);
+
+    // Wooden ramen serving counter shelf
+    const barShelf = new THREE.Mesh(
+      new THREE.BoxGeometry(3.0, 0.14, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.25 })
+    );
+    barShelf.position.set(0, 0.62, 2.3);
+    barShelf.castShadow = true;
+    pagodaGroup.add(barShelf);
+
+    // 2 Steaming Ramen Bowls on counter with soup
+    [-0.6, 0.6].forEach(bx => {
+      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.1, 0.12, 10), MAT.roadWhite);
+      bowl.position.set(bx, 0.75, 2.3);
+      pagodaGroup.add(bowl);
+
+      const soup = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.02, 10), MAT.neonAmber);
+      soup.position.set(bx, 0.8, 2.3);
+      pagodaGroup.add(soup);
+    });
+
+    // Red noren fabric curtain strips
+    for (let i = -1.1; i <= 1.1; i += 0.45) {
+      const noren = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.42, 0.05), MAT.cyberRed);
+      noren.position.set(i, 1.68, 2.22);
+      pagodaGroup.add(noren);
+    }
+
+    // 3 Bar stools
+    [-0.85, 0, 0.85].forEach(x => {
+      const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.08, 12), MAT.cyberRed);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.55, 6), MAT.metalPipe);
+      seat.position.set(x, 0.48, 2.75);
+      leg.position.set(x, 0.25, 2.75);
+      seat.castShadow = true;
+      pagodaGroup.add(seat);
+      pagodaGroup.add(leg);
+    });
+
+    // Glowing traditional Paper Lantern (Chōchin) hanging outside
+    const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.45, 8), MAT.neonAmber);
+    lantern.position.set(1.9, 2.0, 2.3);
+    pagodaGroup.add(lantern);
+
+    // --- PAGODA ROOF TIER 1 ---
+    const roof1Geo = new THREE.ConeGeometry(4.0, 1.0, 4);
+    roof1Geo.rotateY(Math.PI / 4);
+    const roof1 = new THREE.Mesh(roof1Geo, MAT.roofTile);
+    roof1.position.y = 2.9;
+    roof1.castShadow = true;
+    pagodaGroup.add(roof1);
+
+    // Glowing Cyan neon strip along Roof 1 eave
+    const roofTrim1 = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.08, 5.0), MAT.neonCyan);
+    roofTrim1.position.y = 2.52;
+    pagodaGroup.add(roofTrim1);
+
+    // --- LEVEL 2: LIVING / SERVER QUARTERS ---
+    const level2 = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.9, 3.2), MAT.timberDark);
+    level2.position.y = 3.95;
+    level2.castShadow = true;
+    pagodaGroup.add(level2);
+
+    // Glowing slatted cyber windows (Warm Amber & Mint Cyan)
+    const winGeo = new THREE.BoxGeometry(1.6, 0.75, 0.08);
+    const winFront = new THREE.Mesh(winGeo, MAT.windowWarm);
+    winFront.position.set(0, 3.95, 1.65);
+    pagodaGroup.add(winFront);
+
+    const winSide = new THREE.Mesh(winGeo, MAT.windowCyan);
+    winSide.position.set(1.65, 3.95, 0);
+    winSide.rotation.y = Math.PI / 2;
+    pagodaGroup.add(winSide);
+
+    // Exterior Air Conditioner unit with spinning fan
+    const acUnit = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.52, 0.4), MAT.metalPipe);
+    acUnit.position.set(1.85, 3.4, 0.8);
+    pagodaGroup.add(acUnit);
+
+    // --- PAGODA ROOF TIER 2 ---
+    const roof2Geo = new THREE.ConeGeometry(2.9, 0.9, 4);
+    roof2Geo.rotateY(Math.PI / 4);
+    const roof2 = new THREE.Mesh(roof2Geo, MAT.roofTile);
+    roof2.position.y = 5.25;
+    roof2.castShadow = true;
+    pagodaGroup.add(roof2);
+
+    // Glowing Pink neon trim on Roof 2 eave
+    const roofTrim2 = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.08, 3.6), MAT.neonPink);
+    roofTrim2.position.y = 4.9;
+    pagodaGroup.add(roofTrim2);
+
+    // --- LEVEL 3: ROOFTOP CUPOLA & ANTENNA SPIRE ---
+    const level3 = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 1.6), MAT.timberDark);
+    level3.position.y = 6.0;
+    pagodaGroup.add(level3);
+
+    const roof3Geo = new THREE.ConeGeometry(1.8, 0.7, 4);
+    roof3Geo.rotateY(Math.PI / 4);
+    const roof3 = new THREE.Mesh(roof3Geo, MAT.roofTile);
+    roof3.position.y = 6.75;
+    pagodaGroup.add(roof3);
+
+    // Antenna Mast with Red Aviation Warning Beacon
+    const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.1, 2.2, 6), MAT.metalPipe);
+    spire.position.y = 7.7;
+    pagodaGroup.add(spire);
+
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), MAT.neonPink);
+    beacon.position.y = 8.8;
+    pagodaGroup.add(beacon);
+
+    // --- NEON SIGNBOARDS ON PAGODA ---
+    // Vertical "RAMEN" sign board
+    const vSignBoard = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.2, 0.6), MAT.timberDark);
+    vSignBoard.position.set(2.32, 2.2, 1.4);
+    pagodaGroup.add(vSignBoard);
+
+    const vSignNeon = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.8, 0.42), MAT.neonPink);
+    vSignNeon.position.set(2.34, 2.2, 1.4);
+    pagodaGroup.add(vSignNeon);
+
+    // Horizontal "24H" Neon Sign
+    const hSign = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.35, 0.08), MAT.neonAmber);
+    hSign.position.set(0, 2.45, 2.3);
+    pagodaGroup.add(hSign);
+
+    // ROOFTOP HOLOGRAM: Spinning Wireframe Multilayer Rings with Inner Icosahedron
+    const holo1 = new THREE.Group();
+    holo1.position.set(0, 7.3, 0);
+
+    const r1 = new THREE.Mesh(new THREE.RingGeometry(0.7, 0.78, 20), MAT.neonCyan);
+    const r2 = new THREE.Mesh(new THREE.RingGeometry(0.9, 0.98, 20), MAT.neonPink);
+    r1.rotation.x = Math.PI / 2;
+    r2.rotation.y = Math.PI / 2;
+    holo1.add(r1);
+    holo1.add(r2);
+
+    const h1Core = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.3, 0),
+      new THREE.MeshBasicMaterial({ color: 0xffaa00, wireframe: true })
+    );
+    holo1.add(h1Core);
+    pagodaGroup.add(holo1);
+
+    islandGroup.add(pagodaGroup);
+
+    // ========================================================
+    // 6. CAPSULE HOTEL & CYBER STORE («ホテル» / Kiosk)
+    // ========================================================
+    const hotelGroup = new THREE.Group();
+    hotelGroup.position.set(4.8, 0.25, -2.8);
+
+    // 3-Story Narrow High-Tech Hotel Structure
+    const hotelBody = new THREE.Mesh(new THREE.BoxGeometry(3.6, 5.2, 3.6), MAT.timberDark);
+    hotelBody.position.y = 2.6;
+    hotelBody.castShadow = true;
+    hotelBody.receiveShadow = true;
+    hotelGroup.add(hotelBody);
+
+    // High-Tech Sleeping Pod Windows (Grid of Capsule Slits)
+    for (let floor = 0; floor < 3; floor++) {
+      const yF = 1.6 + floor * 1.3;
+      [-0.85, 0.85].forEach(xP => {
+        const podWin = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.6, 0.06), MAT.windowCyan);
+        podWin.position.set(xP, yF, 1.84);
+        hotelGroup.add(podWin);
+      });
+    }
+
+    // Large Vertical Neon Signboard: "ホテル" (HOTEL) on bracket
+    const hotelSignBoard = new THREE.Mesh(new THREE.BoxGeometry(0.15, 3.4, 0.75), MAT.timberDark);
+    hotelSignBoard.position.set(-1.92, 3.2, 0.8);
+    hotelGroup.add(hotelSignBoard);
+
+    const hotelSignNeon = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.0, 0.55), MAT.neonPurple);
+    hotelSignNeon.position.set(-1.94, 3.2, 0.8);
+    hotelGroup.add(hotelSignNeon);
+
+    // Rooftop Solar Panel & Satellite Dish
+    const solarPanel = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 1.2), MAT.roofTile);
+    solarPanel.position.set(0.6, 5.35, 0);
+    solarPanel.rotation.x = 0.3;
+    hotelGroup.add(solarPanel);
+
+    const dishStand = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.9, 6), MAT.metalPipe);
+    dishStand.position.set(-0.8, 5.5, 0);
+    const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.1, 0.12, 12), MAT.metalPipe);
+    dish.position.set(-0.8, 5.9, 0);
+    dish.rotation.z = 0.55;
+    hotelGroup.add(dishStand);
+    hotelGroup.add(dish);
+
+    // ROOFTOP HOLOGRAM 2: Spinning Wireframe Torus / Helix
+    const holo2 = new THREE.Group();
+    holo2.position.set(0, 6.2, 0);
+    const torusHolo = new THREE.Mesh(
+      new THREE.TorusGeometry(0.65, 0.08, 8, 20),
+      MAT.neonPink
+    );
+    torusHolo.rotation.x = Math.PI / 3;
+    holo2.add(torusHolo);
+    hotelGroup.add(holo2);
+
+    // Japanese Cyber Vending Machines (Beverages) along building front
+    // Machine 1: Cyan / Blue Sports Drinks
+    const vm1 = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.85, 0.7), new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.3 }));
+    vm1.position.set(-0.7, 0.92, 2.05);
+    vm1.castShadow = true;
+    hotelGroup.add(vm1);
+
+    const vm1Display = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.85, 0.06), MAT.neonCyan);
+    vm1Display.position.set(-0.7, 1.12, 2.42);
+    hotelGroup.add(vm1Display);
+
+    // Machine 2: Pink / Red Cyber Energy Drinks
+    const vm2 = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.85, 0.7), new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.3 }));
+    vm2.position.set(0.7, 0.92, 2.05);
+    vm2.castShadow = true;
+    hotelGroup.add(vm2);
+
+    const vm2Display = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.85, 0.06), MAT.neonPink);
+    vm2Display.position.set(0.7, 1.12, 2.42);
+    hotelGroup.add(vm2Display);
+
+    islandGroup.add(hotelGroup);
+
+    // ========================================================
+    // 7. BRANCHED NEON SAKURA TREE & GLOWING FLORA
+    // ========================================================
+    const sakuraGroup = new THREE.Group();
+    sakuraGroup.position.set(4.6, 0.25, 2.8);
+
+    // Twisted dark trunk
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.45, 2.6, 6), MAT.sakuraTrunk);
+    trunk.position.y = 1.3;
+    trunk.rotation.z = -0.12;
+    trunk.castShadow = true;
+    sakuraGroup.add(trunk);
+
+    // Multi-tier branched structure
+    const branchCoords = [
+      { r: [0.14, 0.2, 1.8], pos: [-0.5, 2.3, 0.3], rot: [0.3, 0.5, 0.65] },
+      { r: [0.14, 0.2, 1.7], pos: [0.6, 2.2, -0.4], rot: [-0.2, -0.4, -0.7] },
+      { r: [0.1, 0.15, 1.4], pos: [0.2, 2.8, 0.5], rot: [0.5, 0.2, 0.3] },
+      { r: [0.1, 0.15, 1.3], pos: [-0.3, 2.9, -0.5], rot: [-0.4, -0.3, -0.4] }
+    ];
+
+    branchCoords.forEach(b => {
+      const br = new THREE.Mesh(new THREE.CylinderGeometry(b.r[0], b.r[1], b.r[2], 5), MAT.sakuraTrunk);
+      br.position.set(...b.pos);
+      br.rotation.set(...b.rot);
+      sakuraGroup.add(br);
+    });
+
+    // Dense clusters of faceted low-poly glowing sakura foliage
+    const foliageClusters = [
+      { x: 0, y: 3.4, z: 0, s: 1.6 },
+      { x: -1.1, y: 2.9, z: 0.5, s: 1.3 },
+      { x: 1.1, y: 2.8, z: -0.6, s: 1.35 },
+      { x: 0.4, y: 3.8, z: 0.3, s: 1.15 },
+      { x: -0.5, y: 2.7, z: -0.9, s: 1.2 },
+      { x: 0.6, y: 3.2, z: 1.0, s: 1.05 },
+      { x: -0.8, y: 3.6, z: -0.4, s: 1.1 }
+    ];
+
+    foliageClusters.forEach((fl) => {
+      const fGeo = new THREE.DodecahedronGeometry(fl.s, 0);
+      const cluster = new THREE.Mesh(fGeo, MAT.sakuraLeaves);
+      cluster.position.set(fl.x, fl.y, fl.z);
+      cluster.castShadow = true;
+      sakuraGroup.add(cluster);
+    });
+
+    islandGroup.add(sakuraGroup);
+
+    // Glowing Futuristic Bushes / Holographic Shrubs along sidewalk
+    const bushPositions = [
+      { x: -5.8, y: 0.35, z: 2.8, s: 0.55, mat: MAT.sakuraLeaves },
+      { x: -3.5, y: 0.32, z: -5.8, s: 0.48, mat: MAT.windowCyan },
+      { x: 3.2, y: 0.32, z: -5.8, s: 0.5, mat: MAT.sakuraLeaves },
+      { x: 5.8, y: 0.35, z: 4.8, s: 0.45, mat: MAT.windowCyan }
+    ];
+
+    bushPositions.forEach(b => {
+      const bush = new THREE.Mesh(new THREE.DodecahedronGeometry(b.s, 0), b.mat);
+      bush.position.set(b.x, b.y, b.z);
+      bush.castShadow = true;
+      islandGroup.add(bush);
+    });
+
+    // ========================================================
+    // 8. STREET PROPS: LAMP, DUMPSTER, HYDRANT & MANHOLE
+    // ========================================================
+    // Cyber Streetlamp
+    const lampGroup = new THREE.Group();
+    lampGroup.position.set(3.4, 0.25, 4.0);
+
+    const lPole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 4.3, 8), MAT.metalPipe);
+    lPole.position.y = 2.15;
+    lPole.castShadow = true;
+    lampGroup.add(lPole);
+
+    const lArm = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.08, 0.08), MAT.metalPipe);
+    lArm.position.set(-0.45, 4.2, 0);
+    lampGroup.add(lArm);
+
+    const lHead = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.22), MAT.neonCyan);
+    lHead.position.set(-0.88, 4.1, 0);
+    lampGroup.add(lHead);
+
+    islandGroup.add(lampGroup);
+
+    // Cyber Dumpster / Trash Container with Neon Hazard Decal
+    const dumpster = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.1, 0.9), new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 }));
+    dumpster.position.set(-5.6, 0.7, 0.8);
+    dumpster.castShadow = true;
+    islandGroup.add(dumpster);
+
+    const dLid = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.12, 0.95), MAT.metalPipe);
+    dLid.position.set(-5.6, 1.3, 0.8);
+    dLid.rotation.z = -0.15;
+    islandGroup.add(dLid);
+
+    const dNeonStripe = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 0.05), MAT.neonAmber);
+    dNeonStripe.position.set(-5.6, 0.7, 1.28);
+    islandGroup.add(dNeonStripe);
+
+    // Fire Hydrant
+    const hydrant = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.68, 8), MAT.cyberRed);
+    hydrant.position.set(-3.2, 0.55, 3.8);
+    hydrant.castShadow = true;
+    islandGroup.add(hydrant);
+
+    // Manhole Grate on the asphalt road
+    const manhole = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.03, 16), MAT.metalPipe);
+    manhole.position.set(-1.4, 0.015, 1.6);
+    islandGroup.add(manhole);
+
+    // Steam / Mist Particles rising from hydrant and manhole grate
+    const steamCount = 42;
+    const steamGeo = new THREE.BufferGeometry();
+    const steamPositions = new Float32Array(steamCount * 3);
+    const steamData = [];
+
+    for (let i = 0; i < steamCount; i++) {
+      const isManhole = i % 2 === 0;
+      const originX = isManhole ? -1.4 : -3.2;
+      const originZ = isManhole ? 1.6 : 3.8;
+
+      const x = originX + (Math.random() - 0.5) * 0.45;
+      const y = 0.1 + Math.random() * 2.2;
+      const z = originZ + (Math.random() - 0.5) * 0.45;
+
+      steamPositions[i * 3] = x;
+      steamPositions[i * 3 + 1] = y;
+      steamPositions[i * 3 + 2] = z;
+
+      steamData.push({
+        origX: originX,
+        origZ: originZ,
+        speedY: 0.5 + Math.random() * 0.6,
+        driftX: (Math.random() - 0.5) * 0.2,
+        driftZ: (Math.random() - 0.5) * 0.2
+      });
+    }
+
+    steamGeo.setAttribute('position', new THREE.BufferAttribute(steamPositions, 3));
+    const steamMat = new THREE.PointsMaterial({
+      color: 0x67e8f9,
+      size: 0.28,
+      transparent: true,
+      opacity: 0.25,
+      depthWrite: false
+    });
+    const steamParticles = new THREE.Points(steamGeo, steamMat);
+    islandGroup.add(steamParticles);
+
+    // ========================================================
+    // 9. CENTRAL 3D HOLOGRAM OVER CROSSROADS
+    // ========================================================
+    const holoCenter = new THREE.Group();
+    holoCenter.position.set(0, 3.8, 0);
+
+    const holoOcta = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.85, 0),
+      new THREE.MeshBasicMaterial({ color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.85 })
+    );
+    holoCenter.add(holoOcta);
+
+    const holoCore = new THREE.Mesh(
+      new THREE.SphereGeometry(0.32, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xff0066, wireframe: true, transparent: true, opacity: 0.75 })
+    );
+    holoCenter.add(holoCore);
+
+    const holoRing = new THREE.Mesh(
+      new THREE.RingGeometry(1.15, 1.25, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffaa00, side: THREE.DoubleSide, transparent: true, opacity: 0.7 })
+    );
+    holoRing.rotation.x = Math.PI / 2;
+    holoCenter.add(holoRing);
+
+    islandGroup.add(holoCenter);
+
+    // ========================================================
+    // 10. DRONES WITH VOLUMETRIC SPOTLIGHT CONES (ConeGeometry)
+    // ========================================================
+    function createDroneWithSearchlight(colorHex) {
+      const droneGroup = new THREE.Group();
+
+      // Chassis
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.5), MAT.metalPipe);
+      droneGroup.add(body);
+
+      // Glowing Neon Visor Eye
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.06), new THREE.MeshBasicMaterial({ color: colorHex }));
+      eye.position.set(0, 0, 0.26);
+      droneGroup.add(eye);
+
+      // 4 Neon Thruster Rings
+      [[-0.28, -0.28], [0.28, -0.28], [-0.28, 0.28], [0.28, 0.28]].forEach(([tx, tz]) => {
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(0.09, 0.025, 6, 12),
+          new THREE.MeshBasicMaterial({ color: colorHex })
+        );
+        ring.rotation.x = Math.PI / 2;
+        ring.position.set(tx, 0.06, tz);
+        droneGroup.add(ring);
+      });
+
+      // Semi-transparent Volumetric Light Cone
+      const coneHeight = 3.6;
+      const coneGeo = new THREE.ConeGeometry(1.2, coneHeight, 16, 1, true);
+      const coneMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.15,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const coneMesh = new THREE.Mesh(coneGeo, coneMat);
+      // Invert cone so apex is at drone and base is on the street
+      coneMesh.rotation.x = Math.PI;
+      coneMesh.position.y = -coneHeight / 2;
+      droneGroup.add(coneMesh);
+
+      // Matching SpotLight casting specular illumination on wet asphalt
+      const spot = new THREE.SpotLight(colorHex, 3.2, 9, Math.PI / 6, 0.45, 1.8);
+      spot.position.set(0, -0.1, 0);
+      spot.target.position.set(0, -5, 0);
+      droneGroup.add(spot);
+      droneGroup.add(spot.target);
+
+      islandGroup.add(droneGroup);
+      return droneGroup;
+    }
+
+    const drone1 = createDroneWithSearchlight(0x00f3ff);
+    const drone2 = createDroneWithSearchlight(0xff0066);
+
+    // ========================================================
+    // 11. DELICATE SHORT FAST RAIN STREAKS & RIPPLES
+    // ========================================================
+    // 700 thin, fast, translucent streaks strictly over the island (opacity 0.35)
+    const rainCount = 700;
+    const rainGeo = new THREE.BufferGeometry();
+    const rainPositions = new Float32Array(rainCount * 6);
+    const rainSpeeds = [];
+
+    for (let i = 0; i < rainCount; i++) {
+      const x = (Math.random() - 0.5) * (platformW - 1.2);
+      const z = (Math.random() - 0.5) * (platformD - 1.2);
+      const y = 0.5 + Math.random() * 14;
+      const len = 0.28 + Math.random() * 0.18; // Short, thin, and crisp
+
+      const idx = i * 6;
+      rainPositions[idx] = x;
+      rainPositions[idx + 1] = y;
+      rainPositions[idx + 2] = z;
+      rainPositions[idx + 3] = x - 0.02 * len;
+      rainPositions[idx + 4] = y - len;
+      rainPositions[idx + 5] = z;
+
+      rainSpeeds.push(26.0 + Math.random() * 10.0);
+    }
+
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+    const rainMat = new THREE.LineBasicMaterial({
+      color: 0x93c5fd,
+      transparent: true,
+      opacity: 0.35
+    });
+    const rainSystem = new THREE.LineSegments(rainGeo, rainMat);
+    islandGroup.add(rainSystem);
+
+    // Expanding Splash Ripples on Asphalt
+    const rippleCount = 36;
+    const rippleGeo = new THREE.RingGeometry(0.05, 0.11, 16);
+    rippleGeo.rotateX(-Math.PI / 2);
+    const rippleMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide
+    });
+    const rippleMesh = new THREE.InstancedMesh(rippleGeo, rippleMat, rippleCount);
+    islandGroup.add(rippleMesh);
+
+    const ripples = [];
+    const dummyObj = new THREE.Object3D();
+    for (let i = 0; i < rippleCount; i++) {
+      ripples.push({
+        x: (Math.random() - 0.5) * (platformW - 2.5),
+        z: (Math.random() - 0.5) * (platformD - 2.5),
+        age: Math.random(),
+        maxAge: 0.55 + Math.random() * 0.45,
+        maxScale: 0.65 + Math.random() * 0.85
+      });
+    }
+
+    // ========================================================
+    // 12. DISTANT DRIFTING VOID CLOUDS
+    // ========================================================
+    const cloudsGroup = new THREE.Group();
+    const cloudMat = new THREE.MeshStandardMaterial({
+      color: 0x140c28,
+      roughness: 0.95,
+      metalness: 0.05
+    });
+
+    for (let c = 0; c < 7; c++) {
+      const cg = new THREE.DodecahedronGeometry(3.5 + Math.random() * 3.0, 0);
+      const cm = new THREE.Mesh(cg, cloudMat);
+      const angle = (c / 7) * Math.PI * 2;
+      const radius = 24 + Math.random() * 8;
+      cm.position.set(Math.cos(angle) * radius, -9 - Math.random() * 5, Math.sin(angle) * radius);
+      cm.scale.set(1.9, 0.4, 1.4);
+      cloudsGroup.add(cm);
+    }
+    scene.add(cloudsGroup);
+
+    // Hide loader smoothly once scene is ready
+    setTimeout(() => {
+      const loader = document.getElementById('loader');
+      if (loader) loader.classList.add('hidden');
+    }, 400);
+
+    // ========================================================
+    // 13. ANIMATION LOOP (Solid 60 FPS Performance)
+    // ========================================================
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      // 1. Organic Island Levitation
+      islandGroup.position.y = Math.sin(time * 0.8) * 0.28;
+
+      // 2. Turntable OrbitControls
+      controls.update();
+
+      // 3. Central Hologram Animation
+      holoOcta.rotation.y = time * 0.65;
+      holoOcta.rotation.x = time * 0.4;
+      holoCore.rotation.y = -time * 0.9;
+      holoRing.rotation.z = time * 0.75;
+      const pulseCore = 0.9 + 0.12 * Math.sin(time * 3.5);
+      holoCore.scale.set(pulseCore, pulseCore, pulseCore);
+
+      // 4. Rooftop Holograms Rotation
+      holo1.rotation.y = time * 0.8;
+      h1Core.rotation.x = time * 0.9;
+      h1Core.rotation.y = time * 0.6;
+      holo2.rotation.y = -time * 0.7;
+      holo2.rotation.x = Math.sin(time * 0.9) * 0.2;
+
+      // 5. Complex Trajectory Patrol Drones Movement
+      const d1Angle = time * 0.65;
+      drone1.position.set(
+        Math.cos(d1Angle) * 7.8,
+        3.8 + Math.sin(time * 1.6) * 0.45,
+        Math.sin(d1Angle) * 7.8 + Math.cos(time * 0.8) * 1.2
+      );
+      drone1.rotation.y = -d1Angle + Math.PI / 2;
+
+      const d2Angle = -time * 0.52 + Math.PI;
+      drone2.position.set(
+        Math.cos(d2Angle) * 6.5,
+        4.8 + Math.cos(time * 1.8) * 0.5,
+        Math.sin(d2Angle) * 6.5 + Math.sin(time * 0.9) * 1.0
+      );
+      drone2.rotation.y = -d2Angle + Math.PI / 2;
+
+      // 6. Neon Lights Pulsing & Subtle Twinkle
+      const p1 = 0.92 + 0.08 * Math.sin(time * 4.2);
+      const p2 = 0.94 + 0.06 * Math.cos(time * 3.8);
+      neonPinkLight.intensity = 4.2 * p1;
+      neonCyanLight.intensity = 4.2 * p2;
+
+      // Gentle random flicker on Ramen lantern/sign
+      if (Math.random() < 0.015) {
+        ramenWarmLight.intensity *= 0.65;
+      } else {
+        ramenWarmLight.intensity = 4.6 * (0.95 + 0.05 * Math.sin(time * 5.0));
+      }
+
+      // 7. Fast, Thin Semi-Transparent Rain Streaks
+      const rainPos = rainGeo.attributes.position.array;
+      for (let i = 0; i < rainCount; i++) {
+        const idx = i * 6;
+        const spd = rainSpeeds[i] * delta;
+
+        rainPos[idx + 1] -= spd;
+        rainPos[idx + 4] -= spd;
+
+        if (rainPos[idx + 1] < 0.05) {
+          const newY = 12 + Math.random() * 2;
+          const sLen = 0.28 + Math.random() * 0.18;
+          rainPos[idx + 1] = newY;
+          rainPos[idx + 4] = newY - sLen;
+        }
+      }
+      rainGeo.attributes.position.needsUpdate = true;
+
+      // 8. Surface Splash Ripples
+      for (let i = 0; i < rippleCount; i++) {
+        const r = ripples[i];
+        r.age += delta;
+
+        if (r.age >= r.maxAge) {
+          r.age = 0;
+          r.x = (Math.random() - 0.5) * (platformW - 2.5);
+          r.z = (Math.random() - 0.5) * (platformD - 2.5);
+          r.maxScale = 0.6 + Math.random() * 0.8;
+          r.maxAge = 0.5 + Math.random() * 0.4;
+        }
+
+        const progress = r.age / r.maxAge;
+        const curScale = 0.1 + progress * r.maxScale;
+        dummyObj.position.set(r.x, 0.02, r.z);
+        dummyObj.scale.set(curScale, curScale, curScale);
+        dummyObj.updateMatrix();
+        rippleMesh.setMatrixAt(i, dummyObj.matrix);
+      }
+      rippleMesh.instanceMatrix.needsUpdate = true;
+
+      // 9. Underbelly Water Dripping
+      const dPos = dripGeo.attributes.position.array;
+      for (let i = 0; i < dripCount; i++) {
+        const d = dripData[i];
+        dPos[i * 3 + 1] -= d.speed * delta;
+        if (dPos[i * 3 + 1] < -14) {
+          dPos[i * 3 + 1] = d.startY;
+        }
+      }
+      dripGeo.attributes.position.needsUpdate = true;
+
+      // 10. Steam Mist Particles
+      const sPos = steamGeo.attributes.position.array;
+      for (let i = 0; i < steamCount; i++) {
+        const s = steamData[i];
+        sPos[i * 3 + 1] += s.speedY * delta;
+        sPos[i * 3] += s.driftX * delta;
+        sPos[i * 3 + 2] += s.driftZ * delta;
+
+        if (sPos[i * 3 + 1] > 3.2) {
+          sPos[i * 3 + 1] = 0.2;
+          sPos[i * 3] = s.origX + (Math.random() - 0.5) * 0.35;
+          sPos[i * 3 + 2] = s.origZ + (Math.random() - 0.5) * 0.35;
+        }
+      }
+      steamGeo.attributes.position.needsUpdate = true;
+
+      // 11. Slow Void Clouds Drift
+      cloudsGroup.rotation.y = time * 0.015;
+
+      // 12. Render Frame
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // Responsive Window Resize Handler
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
