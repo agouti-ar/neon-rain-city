@@ -1,115 +1,57 @@
-# 🏮 Cyberpunk Floating Island — 3D Low-Poly Diorama
+# Neon Rain City — 3D Cyberpunk Diorama
 
-[![Three.js](https://img.shields.io/badge/Three.js-r160-black?style=for-the-badge&logo=three.js)](https://threejs.org/)
-[![WebGL](https://img.shields.io/badge/WebGL-2.0-990000?style=for-the-badge&logo=webgl)](https://www.khronos.org/webgl/)
-[![60 FPS](https://img.shields.io/badge/Performance-60_FPS-00f3ff?style=for-the-badge)](https://github.com/)
-[![No Dependencies](https://img.shields.io/badge/Dependencies-Zero_Build-ff007f?style=for-the-badge)](https://github.com/)
+[![Three.js](https://img.shields.io/badge/Three.js-r160-000000?style=flat-square&logo=three.js)](https://threejs.org/)
+[![WebGL](https://img.shields.io/badge/WebGL-2.0-990000?style=flat-square&logo=webgl)](https://www.khronos.org/webgl/)
+[![Performance](https://img.shields.io/badge/FPS-60_Stable-00f3ff?style=flat-square)](https://github.com/agouti-ar/neon-rain-city)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
-> Эстетичная, ультра-легкая и плавная 3D-диорама «Парящий неоновый перекресток» в стиле **low-poly / voxel art**, созданная на чистом **Three.js** в одном автономном HTML-файле. Без лагов, без тяжелого пост-процессинга и с поддержкой 60 FPS на любых устройствах.
+A lightweight, real-time 3D isometric diorama built with **pure Three.js** in a single standalone file (`index.html`). Designed with a low-poly / voxel cyberpunk aesthetic inspired by Night City, running at a rock-solid 60 FPS with zero external bundlers or build steps.
+
+[**View Live Demo →**](https://agouti-ar.github.io/neon-rain-city/)
 
 ---
 
-<!-- Сюда можно вставить демонстрационную GIF-анимацию или скриншот -->
 <p align="center">
-  <img src="https://raw.githubusercontent.com/your-username/neon-rain-city/main/preview.png" alt="Cyberpunk Floating Island Preview" width="800"/>
-  <br>
-  <em>(Замените ссылку выше на GIF-анимацию или скриншот после загрузки в репозиторий)</em>
+  <img src="preview.gif" alt="Neon Rain City 3D Diorama Demo" width="850"/>
 </p>
 
 ---
 
-## ✨ Особенности сцены
+## Overview & Architecture
 
-- 🛸 **Парящая платформа (Floating Island)**:
-  - Остров-перекресток плавно левитирует в темно-фиолетовом киберпанк-пространстве с органичным покачиванием.
-  - Ступенчатый воксельный низ из темной скалистой породы, уходящий вглубь на 12 единиц.
-  - Сложная сеть провисающих 3D-кабелей (`CatmullRomCurve3`), стальных балок и дренажных труб.
-  - Анимированные капли воды, стекающие с днища острова в бездну.
+The goal of this project was to achieve a dense, atmospheric cyberpunk environment while maintaining extreme rendering efficiency on mobile and integrated GPUs without relying on expensive post-processing passes.
 
-- 🍜 **Киберпанк Раменная-Пагода**:
-  - Трехъярусная традиционная японская пагода со сложными изогнутыми скатами крыш и неоновыми контурами (циан и розовый).
-  - Детализированный открытый прилавок: деревянная стойка, барные стулья, шторки-норен, светящийся бумажный фонарик чёчин, дымящиеся миски с супом и палочками.
-  - Светящиеся окна-сеточки с теплым золотым светом, внешний блок кондиционера с вентилятором.
-  - Шпиль связи с мигающим красным авиационным маяком.
-
-- 🏨 **Капсульный мини-отель («ホテル» / Capsule Hotel)**:
-  - 3-этажное здание со светящимися витринами капсульных спальных боксов.
-  - Вертикальная неоновая вывеска на кронштейне, солнечная батарея и спутниковая тарелка на крыше.
-  - 2 японских автомата с газировкой и энергетиками с яркой подсветкой.
-
-- 🌸 **Неоновая Сакура и светящаяся флора**:
-  - Ветвистый ствол с 4 крупными побегами и пышная крона из светящихся полупрозрачных розово-малиновых вокселей.
-  - Встроенный точечный свет внутри кроны, отбрасывающий мягкое розовое свечение на перекресток.
-  - Футуристические светящиеся кусты вдоль тротуаров.
-
-- 🌧️ **Дождь, мокрый асфальт и пар**:
-  - Тонкие, короткие и быстрые полупрозрачные штрихи дождя (`opacity: 0.35`), которые не перекрывают видимость деталей.
-  - Расходящиеся кольца ряби на мокром асфальте.
-  - Клубы теплого пара, поднимающиеся от пожарного гидранта и канализационного люка.
-
-- 🚁 **Дроны с объемным светом и голограммы**:
-  - 2 патрульных дрона, кружащих по сложной траектории с полупрозрачными конусами света (`ConeGeometry` с `AdditiveBlending`), освещающими асфальт.
-  - Вращающаяся многослойная голограмма на крыше пагоды (концентрические кольца + анимированный икосаэдр).
-  - Вращающийся торус на крыше отеля и октаэдр в центре перекрестка.
-
-- 🎮 **Камера и оптимизация 60 FPS**:
-  - Плавный непрерывный круговой авто-облет (Turntable 360°), позволяющий рассмотреть сцену под изометрическим углом.
-  - Полное отсутствие HUD, кнопок и текста — чистый медитативный арт.
-  - PBR-материалы (`roughness: 0.12`, `metalness: 0.28`) идеально ловят блики от цветных источников света (`PointLight`) без ухода в черноту и без тяжелого пост-процессинга.
+### Key Highlights
+- **Single-File Zero-Dependency Setup:** Runs directly in any modern browser via ES Modules CDN. No `npm`, `vite`, or compilation required.
+- **Optimized PBR Materials:** Tuned `MeshStandardMaterial` (`roughness: 0.12`, `metalness: 0.28`) simulating wet asphalt and reflective lacquer without the 2x render overhead of real-time planar reflectors (`Reflector.js`).
+- **Balanced Lighting Scheme:** Dual-tone `HemisphereLight` coupled with carefully positioned local `PointLight` sources to highlight polygonal facets and create specular reflections.
+- **Volumetric Illusion without Post-Processing:** Depth is achieved through `THREE.FogExp2` and additive blended cone volumes (`AdditiveBlending`) on drone spotlights instead of full-screen bloom shaders.
+- **Procedural Particle Effects:** Rain streaks and animated ripples on wet pavement driven by optimized geometry loops.
+- **Procedural Cable Geometry:** Suspended industrial conduits modeled dynamically via `THREE.CatmullRomCurve3`.
+- **Cinematic Orbit Camera:** Smooth continuous turntable inspection with damping via `OrbitControls`.
 
 ---
 
-## 🛠️ Стек технологий
+## Tech Stack
 
-- **HTML5 / CSS3** — структура и бесшовный градиентный фон.
-- **Three.js (r160, ES Modules via CDN)** — ядро 3D-графики.
-- **OrbitControls** — плавный кинематографичный авто-поворот камеры.
-- **Procedural PBR Materials** — оптимизированные материалы `MeshStandardMaterial` и `MeshBasicMaterial`.
-- **Procedural Particles & Instancing** — частицы пара, дождь и инстансинг колец на воде.
+- **Core Engine:** Three.js (r160)
+- **Renderer:** WebGL 2.0
+- **Camera Controls:** OrbitControls (ESM)
+- **Math & Curves:** CatmullRomCurve3, Vector3 kinematics
 
 ---
 
-## 🚀 Быстрый старт
+## Running Locally
 
-Файл полностью автономен и не требует сборщиков (`npm`, `webpack` или `vite`):
+Clone the repository and serve it using any lightweight static server:
 
-### Способ 1: Прямое открытие
-Просто дважды кликните по файлу **`index.html`** в проводнике, чтобы открыть его в любом современном браузере (Chrome, Edge, Firefox, Safari, Opera).
-
-### Способ 2: Локальный веб-сервер
 ```bash
-# С помощью Python:
+git clone https://github.com/agouti-ar/neon-rain-city.git
+cd neon-rain-city
+
+# Python 3:
 python -m http.server 5173
 
-# Или с помощью Node.js:
+# Or Node.js:
 npx serve .
 ```
-Затем откройте в браузере: `http://localhost:5173/index.html`
-
----
-
-## 📦 Публикация на GitHub
-
-Если вы хотите опубликовать проект в своем профиле на GitHub:
-
-```bash
-# 1. Создайте новый публичный репозиторий на github.com (например, neon-rain-city)
-# 2. Привяжите удаленный репозиторий (замените YOUR_USERNAME):
-git remote add origin https://github.com/YOUR_USERNAME/neon-rain-city.git
-
-# 3. Переименуйте ветку в main и отправьте код:
-git branch -M main
-git add .
-git commit -m "docs: add README and finalize clean diorama base"
-git push -u origin main --tags
-```
-
-### Включение GitHub Pages (Бесплатный хостинг)
-1. Перейдите в репозитории в **Settings** ➔ **Pages**.
-2. В разделе **Source** выберите ветку `main` и папку `/ (root)`.
-3. Нажмите **Save**. Через 1 минуту ваше 3D-демо будет доступно всему миру по ссылке `https://YOUR_USERNAME.github.io/neon-rain-city/`.
-
----
-
-## 📄 Лицензия
-MIT License. Свободно для экспериментов, портфолио и модификаций.
