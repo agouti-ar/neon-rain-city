@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Cyberpunk Floating Island — 3D Low-Poly Diorama</title>
   <style>
     * {
@@ -2044,8 +2047,8 @@
 
     // Parked at the sidewalk curb near the pedestrian crosswalk zebra
     const akiraBike = createYaibaKusanagiBike();
-    akiraBike.position.set(-3.75, 0.25, 1.35);
-    akiraBike.rotation.y = -0.65;
+    akiraBike.position.set(-3.85, 0.25, 1.4);
+    akiraBike.rotation.y = -0.85;
     akiraBike.castShadow = true;
     islandGroup.add(akiraBike);
 
@@ -3927,7 +3930,7 @@
       toRemove.forEach((l) => l.parent.remove(l));
 
       // Low-cost ground contact radiance decals for vehicle and drones
-      glowDecal(islandGroup, -3.75, 1.35, 3.0, 0x00f3ff, 0.35, 0.03);
+      glowDecal(islandGroup, -3.85, 1.4, 3.0, 0x00f3ff, 0.35, 0.03);
       droneDecals = [drone1, drone2].map((d, i) =>
         glowDecal(islandGroup, 0, 0, 2.6, i ? 0xa855f7 : 0x00f3ff, 0.4, 0.03)
       );
