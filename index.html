@@ -1260,7 +1260,7 @@
       const walker = createCitizen({
         coat: 0xfacc15, trim: 0xff007f, longCoat: true, hood: false, visor: true
       });
-      walker.position.set(1.65, 0, 6.2); // На тротуаре рядом с зеброй и байком Yaiba
+      walker.position.set(1.5, 0, 5.5);
       walker.rotation.y = Math.PI * 0.75;
       addUmbrella(walker, 0xff007f);
       pg.add(walker);
@@ -1611,7 +1611,7 @@
     hotelGroup.add(hotelBody);
 
     // High-Tech Sleeping Pod Windows (Grid of Capsule Slits)
-    for (let floor = 0; floor < 3; floor++) {
+    for (let floor = 1; floor < 3; floor++) {
       const yF = 1.6 + floor * 1.3;
       [-0.85, 0.85].forEach(xP => {
         const podWin = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.6, 0.06), MAT.windowCyan);
@@ -2405,6 +2405,14 @@
     speeder2.position.set(12, 8.8, -18.5);
     scene.add(speeder2);
 
+    const speeder3 = createFlyingSpeeder({
+      bodyColor: 0x1b1f2e, lightColorHex: '#b026ff', lightColorNum: 0xb026ff,
+      headlightColor: 0xffffff, trailLength: 8.5
+    });
+    speeder3.scale.setScalar(1.35);
+    speeder3.position.set(-40, 4.2, -24);
+    scene.add(speeder3);
+
     // ============================================================
     // ПАТЧ 9 — ЗВУК: ГРОМ + МОЛНИЯ, ГУЛ ДРОНОВ, ТРЕСК НЕОНА, ШИПЕНИЕ, СВИСТ СПИДЕРОВ
     // ============================================================
@@ -2412,8 +2420,9 @@
     let audioCtx = null;
     let masterGain = null;
     let audioOn = false;
-    let nextThunderAt = 14;
+    let nextThunderAt = 6;
     let lightningFlash = 0;
+    let lightningStart = -10;
     const HEMI_BASE = hemiLight.intensity;
     const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const _camDir = new THREE.Vector3();
@@ -2455,23 +2464,32 @@
       [drone1, drone2].forEach((d, i) => {
         const osc = ctx.createOscillator();
         osc.type = 'sawtooth';
-        osc.frequency.value = 92 + i * 14;
+        osc.frequency.value = 210 + i * 23;
+        const whine = ctx.createOscillator();
+        whine.type = 'sine';
+        whine.frequency.value = 1150 + i * 110;
+        const whineGain = ctx.createGain();
+        whineGain.gain.value = 0.015;
         const lp = ctx.createBiquadFilter();
         lp.type = 'lowpass';
-        lp.frequency.value = 380;
+        lp.frequency.value = 900;
         const g = ctx.createGain();
-        g.gain.value = 0.06;
-        const p = makePanner(ctx, 0, 3, 0, 3);
+        g.gain.value = 0.14;
+        const p = makePanner(ctx, 0, 3, 0, 8);
+        p.rolloffFactor = 0.7;
         osc.connect(lp);
+        whine.connect(whineGain);
+        whineGain.connect(lp);
         lp.connect(g);
         g.connect(p);
         p.connect(masterGain);
         osc.start();
+        whine.start();
         audioExtras.drones.push({ obj: d, panner: p });
       });
 
       // Свист спидеров: полосовой шум, громкость растёт, когда спидер пролетает мимо острова
-      [speeder1, speeder2].forEach((s, i) => {
+      [speeder1, speeder2, speeder3].forEach((s, i) => {
         const src = ctx.createBufferSource();
         src.buffer = noise;
         src.loop = true;
@@ -2563,13 +2581,16 @@
 
     function updateLightning(time, delta) {
       if (time > nextThunderAt) {
-        nextThunderAt = time + 18 + Math.random() * 25;
-        if (!REDUCED_MOTION) lightningFlash = 1;
-        setTimeout(playThunder, 400 + Math.random() * 1500); // звук отстаёт от вспышки
+        nextThunderAt = time + 14 + Math.random() * 22;
+        if (!REDUCED_MOTION) lightningStart = time;
+        setTimeout(playThunder, 500 + Math.random() * 1500);
       }
-      lightningFlash = Math.max(0, lightningFlash - delta * 2.2);
-      // Одна плавно затухающая вспышка (без быстрого мигания)
-      hemiLight.intensity = HEMI_BASE + lightningFlash * lightningFlash * 1.8;
+      const age = time - lightningStart;
+      let flash = 0;
+      if (age >= 0 && age < 2) {
+        flash = Math.exp(-age * 4.5) + (age > 0.25 ? 0.7 * Math.exp(-(age - 0.25) * 4.5) : 0);
+      }
+      hemiLight.intensity = HEMI_BASE + flash * 2.4;
     }
 
     function updateAudio3D(cam) {
@@ -3090,9 +3111,9 @@
         bench.add(leg);
       });
       bench.traverse((m) => { if (m.isMesh) m.castShadow = true; });
-      bench.position.set(-1.3, 0, 1.4);
-      bench.rotation.y = -Math.PI / 2;
-      g.add(bench);
+      bench.position.set(-5.6, 0.25, 3.3);
+      bench.rotation.y = Math.PI / 2; // лицом к дороге (+X)
+      islandGroup.add(bench);
     }
 
     function buildBusStop() {
@@ -3148,6 +3169,42 @@
       });
     }
 
+    function addKonbiniCanopy() {
+      const canopy = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.08, 1.0), MAT.metalPipe);
+      canopy.position.set(0, 2.15, 2.35);
+      canopy.castShadow = true;
+      hotelGroup.add(canopy);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.03, 0.9), MAT.neonCyan);
+      strip.position.set(0, 2.1, 2.35); // подсветка снизу навеса
+      hotelGroup.add(strip);
+      glowDecal(hotelGroup, 0, 2.7, 3.0, 0x00f3ff, 0.28);
+    }
+
+    function polishParticles() {
+      petalMat.map = getGlowTex();
+      petalMat.size = 0.22;
+      petalMat.needsUpdate = true;
+      dripMat.map = getGlowTex();
+      dripMat.size = 0.3;
+      dripMat.needsUpdate = true;
+    }
+
+    function tintSakura() {
+      const tints = [0xff69b4, 0xff8fc7, 0xe0489a];
+      MAT.sakuraLeaves.transparent = false;
+      MAT.sakuraLeaves.opacity = 1;
+      let i = 0;
+      sakuraGroup.traverse((m) => {
+        if (m.isMesh && m.material === MAT.sakuraLeaves) {
+          m.material = MAT.sakuraLeaves.clone();
+          m.material.color.setHex(tints[i % 3]);
+          m.material.emissive.setHex(tints[i % 3]);
+          m.material.emissiveIntensity = 0.35;
+          i++;
+        }
+      });
+    }
+
     // Call builders before animate
     buildBackAlley();
     buildBillboard();
@@ -3156,6 +3213,9 @@
     buildBusStop();
     addStopPerson();
     buildManholeSteam();
+    addKonbiniCanopy();
+    tintSakura();
+    polishParticles();
 
     // Pre-warm shaders and render a trial frame before dismissing loader
     try {
@@ -3187,19 +3247,16 @@
         // HIGH: всё, как есть сейчас
         useBloom = true;
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        if (bikeWarmLight) bikeWarmLight.castShadow = true;
         shadowEvery = 2;
       } else if (q === 1) {
         // MEDIUM: bloom остаётся, но дешевле (в четверть разрешения), без тени от лампы у байка
         useBloom = true;
         renderer.setPixelRatio(1);
-        if (bikeWarmLight) bikeWarmLight.castShadow = false;
         shadowEvery = 4;
       } else {
         // LOW: без bloom
         useBloom = false;
         renderer.setPixelRatio(1);
-        if (bikeWarmLight) bikeWarmLight.castShadow = false;
         shadowEvery = 6;
       }
 
@@ -3475,6 +3532,10 @@
         speeder2.position.x = 35;
       }
 
+      speeder3.position.x += 5.2 * delta;
+      speeder3.position.y = 4.2 + Math.sin(time * 1.3) * 0.12;
+      if (speeder3.position.x > 40) speeder3.position.x = -40;
+
       // Gentle pulsing of under-island void levitation light
       underIslandLight.intensity = 5.2 + 0.6 * Math.sin(time * 2.0);
 
@@ -3639,6 +3700,14 @@
       audioOn = !audioOn;
       masterGain.gain.setTargetAtTime(audioOn ? 0.6 : 0, audioCtx.currentTime, 0.4);
       soundBtn.textContent = audioOn ? '🔊 Звук' : '🔇 Звук';
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyH') return;
+      const hide = soundBtn.style.display !== 'none';
+      soundBtn.style.display = hide ? 'none' : '';
+      fpsBox.style.display = 'none';
+      meterOn = false;
     });
 
     // Не шуметь, когда вкладка скрыта
