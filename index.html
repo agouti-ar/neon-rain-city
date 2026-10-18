@@ -1036,8 +1036,8 @@
       // Procedural micro-animations: thoracic breathing, cervical yaw, chopstick articulation
       g.userData.update = (t) => {
         torso.scale.y = 1 + Math.sin(t * 1.6 + phase) * 0.015;
-        head.rotation.y = Math.sin(t * 0.4 + phase) * 0.15;
-        head.rotation.x = Math.sin(t * 0.55 + phase) * 0.04;
+        head.rotation.y = Math.sin(t * 0.4 + phase) * 0.15 + (g.userData.headYaw || 0);
+        head.rotation.x = Math.sin(t * 0.55 + phase) * 0.04 + (g.userData.headPitch || 0);
         if (sitting && eating) {
           const lift = Math.pow(Math.max(0, Math.sin(t * 1.2 + phase)), 2);
           armR.fore.rotation.x = -1.3 + lift * 0.45;
@@ -1046,6 +1046,7 @@
 
       g.userData.hipY = hipY;
       g.userData.stripe = stripe;
+      g.userData.parts = { torso, head, armL, armR, legL, legR };
 
       return g;
     }
@@ -1137,6 +1138,48 @@
       );
       bag.position.set(0, hipY + 0.3, -0.19);
       citizen.add(bag);
+    }
+
+    function poseLeanSmoke(c) {
+      const p = c.userData.parts;
+      c.rotation.order = 'YXZ';
+      c.rotation.x = 0.26;
+      p.armL.upper.rotation.set(-0.02, 0, -0.08);
+      p.armL.fore.rotation.x = -1.29;
+      p.armR.upper.rotation.set(-0.5, 0, 0.1);
+      p.armR.fore.rotation.x = -2.1;
+      c.userData.headPitch = 0.1;
+    }
+
+    function poseKiss(a, b) {
+      const pa = a.userData.parts;
+      const pb = b.userData.parts;
+      pb.armL.upper.rotation.set(-1.25, 0, -0.35);
+      pb.armL.fore.rotation.x = -0.5;
+      pb.armR.upper.rotation.set(-1.25, 0, 0.35);
+      pb.armR.fore.rotation.x = -0.5;
+      pa.armL.upper.rotation.set(-0.7, 0, 0.1);
+      pa.armL.fore.rotation.x = -0.6;
+      pa.armR.upper.rotation.set(-0.7, 0, -0.1);
+      pa.armR.fore.rotation.x = -0.6;
+      a.userData.headYaw = 0.28;
+      b.userData.headYaw = 0.28;
+      b.userData.headPitch = -0.06;
+    }
+
+    function animateCook(cook) {
+      const base = cook.userData.update;
+      const p = cook.userData.parts;
+      cook.userData.headYaw = 0;
+      cook.userData.update = (t) => {
+        base(t);
+        p.armL.upper.rotation.set(-0.8 + Math.sin(t * 5.0) * 0.08, 0, 0.05);
+        p.armL.fore.rotation.x = -0.15 + Math.sin(t * 5.0 + 1.0) * 0.1;
+        p.armR.upper.rotation.set(-0.8 + Math.sin(t * 4.3 + 2.0) * 0.08, 0, -0.05);
+        p.armR.fore.rotation.x = -0.15 + Math.sin(t * 4.3 + 0.5) * 0.1;
+        const target = Math.sin(t * 0.35) > 0.2 ? 0.55 : 0;
+        cook.userData.headYaw += (target - cook.userData.headYaw) * 0.05;
+      };
     }
 
     // Helper: Dark Cyber Window Grille / Mullions
@@ -1242,7 +1285,8 @@
       const cook = createCitizen({
         coat: 0x1f2937, trim: 0xffaa00, hood: false, visor: false, headband: true, apron: true
       });
-      cook.position.set(0.2, 0.06, 1.45);
+      cook.position.set(0.2, 0.06, 1.8);
+      animateCook(cook);
       pg.add(cook);
       citizens.push(cook);
 
@@ -2713,12 +2757,124 @@
       return emitter;
     }
 
+    function getConeFadeTex() {
+      if (!_coneTex) {
+        const c = document.createElement('canvas');
+        c.width = 4;
+        c.height = 64;
+        const ctx = c.getContext('2d');
+        const grad = ctx.createLinearGradient(0, 0, 0, 64);
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(1, '#000000');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 4, 64);
+        _coneTex = new THREE.CanvasTexture(c);
+      }
+      return _coneTex;
+    }
+
+    function makeLightCone(parent, x, topY, z, { radius = 0.9, height = 1.9, color = 0xffb703, opacity = 0.18 } = {}) {
+      const mat = new THREE.MeshBasicMaterial({
+        map: getConeFadeTex(), color, transparent: true, opacity,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        toneMapped: false, fog: false
+      });
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, height, 24, 1, true), mat);
+      cone.position.set(x, topY - height / 2, z);
+      parent.add(cone);
+      return cone;
+    }
+
+    function creepyFlicker(t, seed = 0) {
+      const cycle = 6.3 + seed * 1.7;
+      const p = (t + seed * 2.3) % cycle;
+      if (p < 0.10) return 0.1;
+      if (p < 0.22) return 1;
+      if (p < 0.31) return 0.15;
+      if (p < 0.42) return 1;
+      if (p < 0.52) return 0.1;
+      if (p > cycle - 1.2 && p < cycle - 0.2 && Math.floor(t) % 3 === 0) return 0.2;
+      return 0.9 + 0.1 * Math.sin(t * 13.0);
+    }
+
+    function addFlickerLamp(parent, x, y, z, { decalX = x, decalZ = z - 1.0, color = 0xffb703, decalColor = 0xffa63d, seed = 0 } = {}) {
+      const housing = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.2), MAT.metalPipe);
+      housing.position.set(x, y, z);
+      parent.add(housing);
+      const lensMat = new THREE.MeshBasicMaterial({ color, toneMapped: false });
+      const lens = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.14), lensMat);
+      lens.position.set(x, y - 0.07, z);
+      parent.add(lens);
+      const decal = glowDecal(parent, decalX, decalZ, 4.6, decalColor, 0.85);
+      const cone = makeLightCone(parent, x, y - 0.08, z - 0.4, { radius: 1.0, height: y - 0.08, color, opacity: 0.2 });
+
+      const onColor = new THREE.Color(color);
+      const offColor = onColor.clone().multiplyScalar(0.18);
+      propUpdates.push((t) => {
+        const f = creepyFlicker(t, seed);
+        lensMat.color.copy(offColor).lerp(onColor, f);
+        decal.material.opacity = 0.85 * f;
+        cone.material.opacity = 0.2 * f;
+      });
+    }
+
+    function addSideWindows() {
+      const warm = new THREE.MeshStandardMaterial({ color: 0xffbe0b, emissive: 0xffa000, emissiveIntensity: 0.9, roughness: 0.3 });
+      const dim = new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.2, metalness: 0.6 });
+      const geo = new THREE.BoxGeometry(0.06, 0.6, 0.8);
+
+      [
+        [1.83, 2.9, -0.9, warm], [1.83, 2.9, 0.4, dim], [1.83, 4.2, -0.9, dim], [1.83, 4.2, 0.4, warm],
+        [-1.83, 2.9, -0.9, dim], [-1.83, 4.2, -0.9, warm]
+      ].forEach(([x, y, z, mat]) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        hotelGroup.add(m);
+        addWindowGrille(hotelGroup, 0.8, 0.6, x + Math.sign(x) * 0.04, y, z, Math.PI / 2);
+      });
+
+      const lw = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.7, 0.9), warm);
+      lw.position.set(-1.65, 3.95, 0);
+      pagodaGroup.add(lw);
+      addWindowGrille(pagodaGroup, 0.9, 0.7, -1.7, 3.95, 0, Math.PI / 2);
+
+      addAC(hotelGroup, 2.0, 3.55, -0.9, Math.PI / 2, true);
+      addAC(hotelGroup, 2.0, 3.55, 0.6, Math.PI / 2, false);
+      addAC(hotelGroup, -2.0, 3.55, -0.9, -Math.PI / 2, true);
+    }
+
+    function addAC(parent, x, y, z, rotY = 0, spin = false) {
+      const g = new THREE.Group();
+      g.position.set(x, y, z);
+      g.rotation.y = rotY;
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.52, 0.4), MAT.metalPipe));
+      const grille = new THREE.Mesh(
+        new THREE.CircleGeometry(0.19, 16),
+        new THREE.MeshStandardMaterial({ color: 0x05060a, roughness: 0.8 })
+      );
+      grille.position.z = 0.201;
+      g.add(grille);
+      const fan = new THREE.Group();
+      fan.position.z = 0.206;
+      for (let i = 0; i < 4; i++) {
+        const pivot = new THREE.Group();
+        pivot.rotation.z = (i / 4) * Math.PI * 2;
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.15, 0.01), MAT.timberDark);
+        blade.position.y = 0.075;
+        pivot.add(blade);
+        fan.add(pivot);
+      }
+      g.add(fan);
+      parent.add(g);
+      if (spin) propUpdates.push((t) => { fan.rotation.z = t * 18; });
+    }
+
     // ============================================================
     // Service Alley: rear entrance, flickering industrial luminaire, dumpster, debris, street cat, utility cabling
     // ============================================================
     function createCat() {
       const g = new THREE.Group();
-      const fur = new THREE.MeshStandardMaterial({ color: 0x111116, roughness: 0.9 });
+      const fur = new THREE.MeshStandardMaterial({ color: 0x1b1b24, emissive: 0x0a0a14, roughness: 0.8 });
       const eyeMat = new THREE.MeshBasicMaterial({ color: 0x7dff6b, toneMapped: false });
 
       const body = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), fur);
@@ -2801,19 +2957,8 @@
       const awning = add(new THREE.BoxGeometry(1.3, 0.05, 0.5), MAT.roofTile, 0.7, 2.1, -2.05);
       awning.rotation.x = -0.2;
 
-      // Industrial wall bulkhead luminaire with intermittent flicker and ground decal
-      add(new THREE.BoxGeometry(0.18, 0.12, 0.2), MAT.metalPipe, 1.55, 1.95, -1.9);
-      const lensMat = new THREE.MeshBasicMaterial({ color: 0xffb703, toneMapped: false });
-      add(new THREE.BoxGeometry(0.12, 0.05, 0.14), lensMat, 1.55, 1.87, -1.92);
-      const decal = glowDecal(g, 1.0, -2.9, 3.4, 0xffa63d, 0.5);
-      const lensOn = new THREE.Color(0xffb703);
-      const lensOff = new THREE.Color(0x3a2a10);
-      propUpdates.push((t) => {
-        const dropout = Math.sin(t * 2.3) * Math.sin(t * 6.1) > 0.8;
-        const f = dropout ? 0.15 : 0.85 + 0.15 * Math.sin(t * 17);
-        lensMat.color.copy(lensOff).lerp(lensOn, f);
-        decal.material.opacity = 0.5 * f;
-      });
+      // Industrial wall bulkhead luminaire with intermittent flicker, ground decal, and volumetric cone
+      addFlickerLamp(g, 1.55, 1.95, -1.9, { decalX: 1.0, decalZ: -2.9, seed: 0 });
 
       // Wall-mounted conduit with pressure relief steam vent
       add(new THREE.CylinderGeometry(0.06, 0.06, 4.2, 8), MAT.metalPipe, -1.2, 2.1, -1.92);
@@ -2845,7 +2990,7 @@
 
       // Refuse bags (specular wet polymer material)
       const bagMat = new THREE.MeshStandardMaterial({ color: 0x0b0b12, roughness: 0.22, metalness: 0.05 });
-      [[0.5, -3.0, 0.26], [0.95, -2.7, 0.24], [0.3, -3.35, 0.22], [1.4, -3.1, 0.25]].forEach(([x, z, r]) => {
+      [[1.55, -3.3, 0.26], [1.95, -3.0, 0.24], [1.7, -3.75, 0.22], [2.3, -3.4, 0.25]].forEach(([x, z, r]) => {
         const bag = add(new THREE.SphereGeometry(r, 12, 10), bagMat, x, r * 0.8, z);
         bag.scale.y = 0.8;
         bag.rotation.y = Math.random() * 6;
@@ -3084,67 +3229,85 @@
       return tex;
     }
 
-    function addBillboardAnimation(board, g) {
-      // Advertising reel sequencer (timed texture cycling)
-      const faceMat = board.userData.faceMat;
-      const slides = [faceMat.map, createBillboardAdTexture(1), createBillboardAdTexture(2)];
+    function makeSlideshow(faceMat, textures, period = 7) {
       let current = 0;
-      let lastSwitch = 0;
+      let last = 0;
+      faceMat.map = textures[0];
       propUpdates.push((t) => {
-        if (t - lastSwitch > 6) {
-          current = (current + 1) % slides.length;
-          faceMat.map = slides[current];
-          lastSwitch = t;
+        if (t - last > period) {
+          current = (current + 1) % textures.length;
+          faceMat.map = textures[current];
+          last = t;
         }
-        const glitch = t - lastSwitch < 0.22; // Post-transition digital chromatic glitch
-        slides.forEach((s) => { s.offset.x = 0; });
-        if (glitch) slides[current].offset.x = (Math.random() - 0.5) * 0.04;
-        const f = glitch ? 0.6 + Math.random() * 0.4 : 1;
-        faceMat.color.setRGB(f, f, f);
+        const glitch = t - last < 0.2;
+        textures.forEach((s) => { s.offset.x = 0; });
+        if (glitch) textures[current].offset.x = (Math.random() - 0.5) * 0.05;
+        faceMat.color.setScalar(glitch ? 0.8 : 1);
       });
+    }
 
-      // Perimeter marquee chase lights (dual-sided InstancedMesh)
-      const fw = 3.9;
-      const fh = 2.35;
-      const perim = 2 * (fw + fh);
-      const N = 36;
-      const bulbs = new THREE.InstancedMesh(
-        new THREE.SphereGeometry(0.045, 6, 4),
-        new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }),
-        N * 2
-      );
-      const pointOnFrame = (d0) => {
-        let d = d0 % perim;
-        if (d < fw) return [-fw / 2 + d, fh / 2];
-        d -= fw;
-        if (d < fh) return [fw / 2, fh / 2 - d];
-        d -= fh;
-        if (d < fw) return [fw / 2 - d, -fh / 2];
-        d -= fw;
-        return [-fw / 2, -fh / 2 + d];
-      };
-      const m4 = new THREE.Matrix4();
-      for (let i = 0; i < N; i++) {
-        const [x, y] = pointOnFrame((i / N) * perim);
-        [0.17, -0.17].forEach((z, side) => {
-          m4.makeTranslation(x, 3.3 + y, z);
-          bulbs.setMatrixAt(i * 2 + side, m4);
-        });
-      }
-      g.add(bulbs);
+    function addBillboardAnimation(board, g) {
+      const faceMat = board.userData.faceMat;
+      makeSlideshow(faceMat, [faceMat.map, createBillboardAdTexture(1), createBillboardAdTexture(2)], 6);
+    }
 
-      const cA = new THREE.Color(0xffd166);
-      const cB = new THREE.Color(0x00f3ff);
-      const tmp = new THREE.Color();
+    function addBillboardHologram(g) {
+      const holo = new THREE.Group();
+      holo.position.set(0, 3.3 + 1.05 + 0.12, 0); // Above upper edge of billboard
+
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.3), MAT.metalPipe);
+      base.position.y = 0.05;
+
+      const beamGeo = new THREE.ConeGeometry(0.55, 1.3, 20, 1, true);
+      beamGeo.rotateX(Math.PI); // Tip down: beam radiates upward from projector
+      const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({
+        color: 0x00f3ff, transparent: true, opacity: 0.1,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+      }));
+      beam.position.y = 0.75;
+
+      const canGroup = new THREE.Group();
+      canGroup.position.y = 0.85;
+      const wireMat = new THREE.MeshBasicMaterial({
+        color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.9, toneMapped: false
+      });
+      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.62, 12, 5, true), wireMat);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xff007f, toneMapped: false });
+      const capTop = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.012, 6, 16), ringMat);
+      capTop.rotation.x = Math.PI / 2;
+      capTop.position.y = 0.31;
+      const capBot = capTop.clone();
+      capBot.position.y = -0.31;
+      canGroup.add(can, capTop, capBot);
+
+      holo.add(base, beam, canGroup);
+      g.add(holo);
+
       propUpdates.push((t) => {
-        const step = Math.floor(t * 8);
-        for (let i = 0; i < N; i++) {
-          const lit = (i + step) % 4 === 0;
-          tmp.copy(i % 2 ? cA : cB).multiplyScalar(lit ? 1 : 0.12);
-          bulbs.setColorAt(i * 2, tmp);
-          bulbs.setColorAt(i * 2 + 1, tmp);
-        }
-        bulbs.instanceColor.needsUpdate = true;
+        canGroup.rotation.y = t * 1.3;
+        canGroup.position.y = 0.85 + Math.sin(t * 1.8) * 0.04;
+        const flick = Math.sin(t * 1.1) * Math.sin(t * 9.0) > 0.9 ? 0.4 : 1;
+        wireMat.opacity = 0.9 * flick;
+        beam.material.opacity = 0.1 * flick;
+      });
+    }
+
+    function addBillboardScanline(g) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x66ffff, transparent: true, opacity: 0.35,
+        blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
+      });
+      const geo = new THREE.PlaneGeometry(3.3, 0.07);
+      const front = new THREE.Mesh(geo, mat);
+      front.position.z = 0.12;
+      const back = new THREE.Mesh(geo, mat);
+      back.position.z = -0.12;
+      back.rotation.y = Math.PI;
+      g.add(front, back);
+      propUpdates.push((t) => {
+        const y = 3.3 + (((t * 0.4) % 1) * 2 - 1) * 0.9;
+        front.position.y = y;
+        back.position.y = y;
       });
     }
 
@@ -3157,6 +3320,8 @@
       g.add(board);
       addBillboardNeon(g);
       addBillboardAnimation(board, g);
+      addBillboardHologram(g);
+      addBillboardScanline(g);
       [-1.3, 1.3].forEach((x) => {
         const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 3.1, 8), MAT.metalPipe);
         post.position.set(x, 1.55, -0.18);
@@ -3256,6 +3421,103 @@
       islandGroup.add(bench);
     }
 
+    function createBusPosterTexture(variant) {
+      const w = 512;
+      const h = 768;
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d');
+      const font = '"Segoe UI", Meiryo, "Hiragino Sans", "Yu Gothic", sans-serif';
+      const neon = (text, x, y, size, color, core) => {
+        ctx.font = 'bold ' + size + 'px ' + font;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 30;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 12;
+        ctx.fillText(text, x, y);
+        ctx.fillStyle = core;
+        ctx.shadowBlur = 4;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+      };
+      const bg = ctx.createLinearGradient(0, 0, w, h);
+
+      if (variant === 0) {
+        bg.addColorStop(0, '#0b1030');
+        bg.addColorStop(1, '#2b0a4a');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+        neon('NEURO', w / 2, 210, 120, '#00f3ff', '#ffffff');
+        neon('LINK', w / 2, 330, 120, '#ff007f', '#fff0f8');
+        neon('脳内高速化', w / 2, 470, 70, '#ffd166', '#fffbe6');
+        neon('UPGRADE YOUR MIND', w / 2, 580, 38, '#00f3ff', '#ffffff');
+      } else if (variant === 1) {
+        bg.addColorStop(0, '#2a0a0a');
+        bg.addColorStop(1, '#4a0a22');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+        neon('義手', w / 2, 220, 190, '#ff1744', '#ffffff');
+        neon('-30%', w / 2, 410, 140, '#ffd166', '#fffbe6');
+        neon('CYBER ARM SALE', w / 2, 560, 46, '#00f3ff', '#ffffff');
+      } else {
+        bg.addColorStop(0, '#06121c');
+        bg.addColorStop(1, '#0a2a2a');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+        neon('LOST CAT', w / 2, 140, 100, '#7dff6b', '#f0fff0');
+        neon('黒猫を探しています', w / 2, 250, 46, '#ffd166', '#fffbe6');
+        // Black cat silhouette with bioluminescent green eyes
+        ctx.fillStyle = '#05060a';
+        ctx.beginPath();
+        ctx.ellipse(w / 2, 420, 105, 90, 0, 0, Math.PI * 2);
+        ctx.fill();
+        [-1, 1].forEach((s) => {
+          ctx.beginPath();
+          ctx.moveTo(w / 2 + s * 40, 345);
+          ctx.lineTo(w / 2 + s * 100, 290);
+          ctx.lineTo(w / 2 + s * 100, 380);
+          ctx.closePath();
+          ctx.fill();
+        });
+        ctx.fillStyle = '#7dff6b';
+        ctx.shadowColor = '#7dff6b';
+        ctx.shadowBlur = 24;
+        [-1, 1].forEach((s) => {
+          ctx.beginPath();
+          ctx.ellipse(w / 2 + s * 42, 415, 17, 11, 0, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.shadowBlur = 0;
+        neon('REWARD 500¥', w / 2, 600, 58, '#ff007f', '#fff0f8');
+      }
+
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = '#00f3ff';
+      ctx.strokeStyle = '#00f3ff';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(14, 14, w - 28, h - 28);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      return tex;
+    }
+
+    function addBusPoster(g) {
+      const textures = [0, 1, 2].map(createBusPosterTexture);
+      const poster = create3DLightboxMesh({
+        w: 0.8, h: 1.15, d: 0.05, texture: textures[0], bracketType: 'none'
+      });
+      poster.position.set(0.55, 1.3, -0.4);
+      g.add(poster);
+      makeSlideshow(poster.userData.faceMat, textures, 8);
+      glowDecal(g, 0.55, 0.3, 1.8, 0x66ccff, 0.2);
+    }
+
     function buildBusStop() {
       const g = new THREE.Group();
       const add = (geo, mat, x, y, z) => {
@@ -3287,6 +3549,7 @@
       sign.position.set(0, 2.62, 0);
       g.add(sign);
 
+      addBusPoster(g);
       glowDecal(g, 0, 0.1, 3.2, 0x38bdf8, 0.3);
       g.position.set(3.9, 0.25, 6.0);
       g.rotation.y = -Math.PI / 2; // Facing roadway (-X)
@@ -3392,8 +3655,9 @@
 
       // Resident at balcony railing: unshielded portrait, incandescence ember, thermal plume
       const smoker = createOutfitCitizen(2, { visor: false });
-      smoker.position.set(0.9, deckY + 0.04, -2.25);
+      smoker.position.set(0.9, deckY + 0.04, -2.15);
       smoker.rotation.y = Math.PI; // Facing balcony railing (-Z)
+      poseLeanSmoke(smoker);
       g.add(smoker);
       citizens.push(smoker);
 
@@ -3410,7 +3674,7 @@
       });
       // Micro-steam plume above cigarette ember (world-space transform)
       createSteamEmitter(
-        new THREE.Vector3(4.8 + 0.83, 0.25 + deckY + 0.04 + hipY + 0.63, -2.8 - 2.39),
+        new THREE.Vector3(4.8 + 0.83, 0.25 + deckY + 0.04 + 1.306, -2.8 - 2.65),
         { count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1 }
       );
     }
@@ -3427,7 +3691,7 @@
       const darkWood = new THREE.MeshStandardMaterial({ color: 0x3b2a1c, roughness: 0.7 });
       const wood = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.6 });
 
-      // Kitchen service entrance with noren curtain
+      // Kitchen service door with noren curtain
       add(new THREE.BoxGeometry(1.1, 2.0, 0.05), MAT.metalPipe, -1.2, 1.0, -2.22);
       add(new THREE.BoxGeometry(0.95, 1.9, 0.07), darkWood, -1.2, 0.95, -2.26);
       add(
@@ -3436,7 +3700,12 @@
         -1.2, 1.55, -2.33
       );
 
-      // Suspended chochin lantern with pendulum sway and ground bounce
+      // Cold flickering luminaire with conical beam over service entrance
+      addFlickerLamp(g, -1.2, 2.2, -2.3, {
+        decalX: -1.2, decalZ: -3.2, color: 0xd9fff5, decalColor: 0xbfffe8, seed: 1
+      });
+
+      // Warm paper lantern swaying over couple
       const lantern = new THREE.Group();
       lantern.position.set(-0.35, 2.3, -2.4);
       const lanternMat = new THREE.MeshStandardMaterial({ color: 0xff2a14, emissive: 0xff3b00, emissiveIntensity: 1.1, roughness: 0.6 });
@@ -3448,22 +3717,9 @@
       lantern.add(lb, cord);
       g.add(lantern);
       propUpdates.push((t) => { lantern.rotation.z = Math.sin(t * 1.7) * 0.06; });
-      glowDecal(g, -0.35, -3.0, 2.4, 0xff5a1f, 0.35);
+      glowDecal(g, -0.1, -2.9, 2.6, 0xff5a1f, 0.4);
 
-      // Industrial fluorescent tube over service entrance
-      const tubeMat = new THREE.MeshBasicMaterial({ color: 0xd9fff5, toneMapped: false });
-      add(new THREE.BoxGeometry(0.9, 0.08, 0.06), MAT.metalPipe, -1.2, 2.24, -2.26);
-      add(new THREE.BoxGeometry(0.8, 0.05, 0.05), tubeMat, -1.2, 2.18, -2.3);
-      const tubeDecal = glowDecal(g, -1.2, -3.2, 2.8, 0xbfffe8, 0.35);
-      propUpdates.push((t) => {
-        const p = t % 7.0;
-        // Dual rapid ignition flickers followed by steady emission
-        const on = p < 0.12 ? 0.1 : p < 0.25 ? 1 : p < 0.34 ? 0.1 : 1;
-        tubeMat.color.setRGB(0.85 * on + 0.05, 1.0 * on + 0.05, 0.96 * on + 0.05);
-        tubeDecal.material.opacity = 0.35 * on;
-      });
-
-      // Sake storage barrels with iron hoops and utility cargo crates
+      // Sake storage barrels with iron hoops
       const barrelMat = new THREE.MeshStandardMaterial({ color: 0x7c4a1f, roughness: 0.65 });
       const ringMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.4, metalness: 0.6 });
       [[0.9, -3.0], [1.45, -2.85], [1.15, -3.45]].forEach(([x, z]) => {
@@ -3473,7 +3729,9 @@
           ring.rotation.x = Math.PI / 2;
         });
       });
-      [[-2.15, 0.18, -2.9, 0x2563eb, 0.0], [-2.15, 0.54, -2.9, 0xdc2626, 0.25], [-1.55, 0.18, -3.15, 0x16a34a, -0.2]]
+
+      // Storage crates offset from doorway
+      [[-2.2, 0.18, -3.3, 0x2563eb, 0.0], [-2.2, 0.54, -3.3, 0xdc2626, 0.25], [-1.65, 0.18, -3.95, 0x16a34a, -0.2]]
         .forEach(([x, y, z, c, r]) => {
           const crate = add(
             new THREE.BoxGeometry(0.5, 0.36, 0.5),
@@ -3483,70 +3741,46 @@
           crate.rotation.y = r;
         });
 
-      // Corrugated cardboard packaging, bucket, and straw broom
+      // Cardboard boxes, utility bucket, and broom
       const cardboard = new THREE.MeshStandardMaterial({ color: 0x9a7b4f, roughness: 0.9 });
-      [[0.35, -2.7, 0.5, 0.28, 0.4, 0.3], [0.6, -2.65, 0.35, 0.22, 0.3, -0.2],
+      [[1.65, -3.95, 0.5, 0.28, 0.4, 0.3], [1.3, -4.3, 0.35, 0.22, 0.3, -0.2],
        [-0.1, -4.1, 0.6, 0.02, 0.5, 0.8], [0.0, -4.12, 0.55, 0.02, 0.45, 0.5]]
         .forEach(([x, z, w, h, d, r]) => {
           const box = add(new THREE.BoxGeometry(w, h, d), cardboard, x, h / 2, z);
           box.rotation.y = r;
         });
-      add(new THREE.CylinderGeometry(0.14, 0.11, 0.28, 10), MAT.metalPipe, -0.85, 0.14, -2.6);
-      const broom = add(new THREE.CylinderGeometry(0.012, 0.012, 1.3, 5), wood, -0.55, 0.64, -2.3);
+      add(new THREE.CylinderGeometry(0.14, 0.11, 0.28, 10), MAT.metalPipe, -2.05, 0.14, -2.55);
+      const broom = add(new THREE.CylinderGeometry(0.012, 0.012, 1.3, 5), wood, -2.35, 0.64, -2.4);
       broom.rotation.z = 0.15;
 
-      // Delivery bicycle assembly
-      const bike = new THREE.Group();
-      const metal = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.4, metalness: 0.7 });
-      [-0.45, 0.45].forEach((x) => {
-        const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.02, 6, 20), metal);
-        wheel.position.set(x, 0.3, 0);
-        bike.add(wheel);
-      });
-      const bar = (x1, y1, x2, y2) => {
-        const len = Math.hypot(x2 - x1, y2 - y1);
-        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, len, 5), metal);
-        m.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0);
-        m.rotation.z = Math.atan2(y2 - y1, x2 - x1) - Math.PI / 2;
-        bike.add(m);
-      };
-      bar(-0.45, 0.3, -0.05, 0.28);
-      bar(-0.05, 0.28, -0.12, 0.68);
-      bar(-0.12, 0.68, 0.35, 0.65);
-      bar(-0.05, 0.28, 0.35, 0.65);
-      bar(0.35, 0.65, 0.45, 0.3);
-      bar(-0.45, 0.3, -0.12, 0.68);
-      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.08), darkWood);
-      seat.position.set(-0.14, 0.71, 0);
-      const bars = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.4), metal);
-      bars.position.set(0.36, 0.7, 0);
-      const basket = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.4), new THREE.MeshStandardMaterial({ color: 0x374151, roughness: 0.6 }));
-      basket.position.set(0.52, 0.58, 0);
-      bike.add(seat, bars, basket);
-      bike.position.set(0.25, 0, -3.9);
-      bike.rotation.y = 0.35;
-      g.add(bike);
+      // Courier delivery scooter with thermal cargo box
+      const scooter = akiraBike.clone(true);
+      const strayLights = [];
+      scooter.traverse((o) => { if (o.isLight) strayLights.push(o); });
+      strayLights.forEach((l) => l.parent.remove(l));
+      scooter.scale.setScalar(0.65);
+      scooter.position.set(-0.7, 0, -4.35);
+      scooter.rotation.set(0, 0.3, 0);
+      const deliveryBox = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.42), MAT.cyberRed);
+      deliveryBox.position.set(-1.0, 0.78, 0);
+      const deliveryStripe = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.04, 0.44), MAT.neonAmber);
+      deliveryStripe.position.set(-1.0, 0.99, 0);
+      scooter.add(deliveryBox, deliveryStripe);
+      g.add(scooter);
 
-      // Suspended clothesline with wind-driven planar dynamics
-      [-2.5, 1.75].forEach((x) => add(new THREE.CylinderGeometry(0.04, 0.04, 2.3, 6), wood, x, 1.15, -3.7));
-      const lineRope = add(new THREE.CylinderGeometry(0.008, 0.008, 4.25, 4), MAT.metalPipe, -0.375, 2.2, -3.7);
-      lineRope.rotation.z = Math.PI / 2;
-      const cloths = [0xf8fafc, 0xff9ecb, 0x38bdf8, 0xfde047, 0xe5e7eb].map((c, i) => {
-        const geo = new THREE.PlaneGeometry(0.38, 0.55);
-        geo.translate(0, -0.275, 0);
-        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, side: THREE.DoubleSide }));
-        m.position.set(-2.0 + i * 0.8, 2.2, -3.7);
-        g.add(m);
-        return m;
-      });
-      propUpdates.push((t) => {
-        cloths.forEach((m, i) => {
-          m.rotation.z = Math.sin(t * 1.6 + i) * 0.12;
-          m.rotation.x = Math.sin(t * 1.1 + i * 2) * 0.06;
-        });
-      });
+      // Alley couple embracing beneath the lantern
+      const a = createOutfitCitizen(1, { hood: false, visor: false });
+      const b = createOutfitCitizen(4, { visor: false });
+      a.scale.setScalar(1);
+      b.scale.setScalar(1);
+      a.position.set(-0.05, 0, -2.62);
+      a.rotation.y = Math.PI;
+      b.position.set(-0.05, 0, -2.98);
+      poseKiss(a, b);
+      g.add(a, b);
+      citizens.push(a, b);
 
-      // Miniature shinto shrine with sacred votive flame
+      // Shinto roadside shrine with warm votive flame
       const shrine = new THREE.Group();
       const stone = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.8 });
       const sb = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.5), stone);
@@ -3560,23 +3794,12 @@
       const slamp = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffb703, toneMapped: false }));
       slamp.position.set(0, 0.3, 0.17);
       shrine.add(sb, sbody, sroof, slamp);
-      shrine.position.set(-2.3, 0, -4.2);
+      shrine.position.set(-2.3, 0, -4.4);
       shrine.rotation.y = Math.PI / 2;
       g.add(shrine);
-      glowDecal(g, -2.1, -4.2, 1.6, 0xffa63d, 0.25);
+      glowDecal(g, -2.1, -4.4, 1.6, 0xffa63d, 0.25);
 
-      // Line cook on break: seated on cargo crate observing rainward perimeter
-      const crateSeat = add(new THREE.BoxGeometry(0.5, 0.52, 0.5), wood, -0.3, 0.26, -3.2);
-      crateSeat.rotation.y = 0.2;
-      const cook = createCitizen({
-        coat: 0x1f2937, trim: 0xffaa00, hood: false, visor: false, headband: true, apron: true, sitting: true
-      });
-      cook.position.set(-0.3, 0, -3.2);
-      cook.rotation.y = Math.PI * 0.92;
-      g.add(cook);
-      citizens.push(cook);
-
-      // Upper-tier rear fenestration: illuminated and dark pod units
+      // Upper-tier rear windows
       const warmWin = new THREE.MeshStandardMaterial({ color: 0xffbe0b, emissive: 0xffa000, emissiveIntensity: 0.9, roughness: 0.3 });
       const darkWin = new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.2, metalness: 0.6 });
       [[-0.7, warmWin], [0.7, darkWin]].forEach(([x, mat]) => {
@@ -3676,6 +3899,49 @@
       );
     }
 
+    function addPuddles() {
+      const puddleMat = new THREE.MeshStandardMaterial({
+        color: 0x04050b, roughness: 0.03, metalness: 0.9,
+        envMap: proceduralEnvMap, envMapIntensity: 1.8
+      });
+      const geo = new THREE.CircleGeometry(1, 28);
+      geo.rotateX(-Math.PI / 2);
+      [
+        [-3.75, 3.4, 0.65, 0.55, 0.27],  // Sidewalk near lantern and umbrella pedestrian
+        [1.2, 2.85, 1.0, 0.6, 0.03],     // Roadway before pedestrian crosswalk
+        [-1.2, -2.0, 1.0, 0.65, 0.03],   // Roadway near ramen counter
+        [5.6, -5.5, 0.8, 0.55, 0.27],    // Hotel service alley entrance
+        [-4.9, -5.2, 0.8, 0.5, 0.27],    // Pagoda back alley, under couple
+        [4.2, 4.2, 0.7, 0.5, 0.27]       // Transit bus stop shelter perimeter
+      ].forEach(([x, z, rx, rz, y]) => {
+        const m = new THREE.Mesh(geo, puddleMat);
+        m.position.set(x, y, z);
+        m.scale.set(rx, 1, rz);
+        m.receiveShadow = true;
+        islandGroup.add(m);
+        puddleSpots.push({ x, z, rx, rz, y });
+      });
+    }
+
+    function addDrains() {
+      const plate = new THREE.MeshStandardMaterial({ color: 0x1a1f2b, roughness: 0.4, metalness: 0.6 });
+      const slit = new THREE.MeshBasicMaterial({ color: 0x020308 });
+      [[-2.75, -4.0], [-2.75, 0.3], [2.75, -4.0], [2.75, 0.3], [2.75, 6.0]].forEach(([x, z]) => {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.02, 0.55), plate);
+        p.position.set(x, 0.03, z);
+        islandGroup.add(p);
+        [-0.18, -0.06, 0.06, 0.18].forEach((dz) => {
+          const s = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.005, 0.03), slit);
+          s.position.set(x, 0.045, z + dz);
+          islandGroup.add(s);
+        });
+      });
+    }
+
+    function addStreetLampCone() {
+      makeLightCone(bikeLampGroup, 0.85, 4.1, -0.6, { radius: 1.6, height: 4.0, color: 0xffa63d, opacity: 0.12 });
+    }
+
     // Call builders before animate
     buildBackAlley();
     buildBillboard();
@@ -3689,9 +3955,13 @@
     polishParticles();
     buildHotelBack();
     buildPagodaBack();
+    addSideWindows();
+    addPuddles();
+    addDrains();
+    addStreetLampCone();
     applyLightBudget();
     restoreSavedQuality();
-    trimShadowCasters();
+    trimShadowCasters(); // Always last
 
     // Pre-warm shaders and render a trial frame before dismissing loader
     try {
@@ -3889,8 +4159,16 @@
 
         if (r.age >= r.maxAge) {
           r.age = 0;
-          r.x = (Math.random() - 0.5) * (platformW - 2.5);
-          r.z = (Math.random() - 0.5) * (platformD - 2.5);
+          if (Math.random() < 0.5 && puddleSpots.length) {
+            const p = puddleSpots[(Math.random() * puddleSpots.length) | 0];
+            r.x = p.x + (Math.random() * 2 - 1) * p.rx * 0.8;
+            r.z = p.z + (Math.random() * 2 - 1) * p.rz * 0.8;
+            r.y = p.y + 0.01;
+          } else {
+            r.x = (Math.random() - 0.5) * (platformW - 2.5);
+            r.z = (Math.random() - 0.5) * (platformD - 2.5);
+            r.y = undefined;
+          }
           r.maxScale = 0.6 + Math.random() * 0.8;
           r.maxAge = 0.5 + Math.random() * 0.4;
         }
@@ -3898,7 +4176,7 @@
         const progress = r.age / r.maxAge;
         const curScale = 0.1 + progress * r.maxScale;
         const onSidewalk = Math.abs(r.x) > 2.9;
-        dummyObj.position.set(r.x, onSidewalk ? 0.27 : 0.03, r.z);
+        dummyObj.position.set(r.x, r.y ?? (onSidewalk ? 0.27 : 0.03), r.z);
         dummyObj.scale.set(curScale, curScale, curScale);
         dummyObj.updateMatrix();
         rippleMesh.setMatrixAt(i, dummyObj.matrix);
