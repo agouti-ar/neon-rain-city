@@ -145,7 +145,7 @@
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.25;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.info.autoReset = false;
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
@@ -1978,7 +1978,7 @@
 
     // Parked at the sidewalk curb near the pedestrian crosswalk zebra
     const akiraBike = createYaibaKusanagiBike();
-    akiraBike.position.set(-3.2, 0.14, 1.4);
+    akiraBike.position.set(-3.2, 0.25, 1.4);
     akiraBike.rotation.y = -0.22;
     akiraBike.castShadow = true;
     islandGroup.add(akiraBike);
@@ -2627,6 +2627,10 @@
     // ============================================================
     const propUpdates = [];
     const steamEmitters = [];
+    const glowDecals = [];
+    const puddleSpots = [];
+    let _coneTex = null;
+    const debugOff = {};
 
     let _glowTex = null;
     function getGlowTex() {
@@ -2651,6 +2655,7 @@
       m.rotation.x = -Math.PI / 2;
       m.position.set(x, y, z);
       parent.add(m);
+      glowDecals.push(m);
       return m;
     }
 
@@ -3588,6 +3593,13 @@
     let shadowEvery = 2; // Shadow map refresh interval (every N frames)
     let shadowTick = 0;
 
+    function setMSAA(on) {
+      [composer.renderTarget1, composer.renderTarget2].forEach((rt) => {
+        rt.samples = on ? 2 : 0;
+        rt.dispose();
+      });
+    }
+
     function setQuality(q) {
       quality = q;
       const w = window.innerWidth;
@@ -3598,23 +3610,21 @@
         useBloom = true;
         renderer.setPixelRatio(Math.min(dpr, 2));
         shadowEvery = 2;
+        setMSAA(true);
       } else if (q === 1) {
         useBloom = true;
-        renderer.setPixelRatio(Math.min(dpr, 1) * 0.75);
+        renderer.setPixelRatio(1);
         shadowEvery = 4;
+        setMSAA(false);
       } else {
         useBloom = false;
-        renderer.setPixelRatio(Math.min(dpr, 1) * 0.6);
+        renderer.setPixelRatio(1);
         shadowEvery = 6;
       }
 
       renderer.setSize(w, h);
       composer.setPixelRatio(renderer.getPixelRatio());
       composer.setSize(w, h);
-      if (q === 1) {
-        const pr = renderer.getPixelRatio();
-        bloomPass.setSize(Math.floor((w * pr) / 2), Math.floor((h * pr) / 2));
-      }
     }
 
     function restoreSavedQuality() {
@@ -3625,6 +3635,25 @@
           fpsChecked = true;
         }
       } catch (err) { /* Storage access unavailable */ }
+    }
+
+    const _ws = new THREE.Vector3();
+    function trimShadowCasters(minRadius = 0.3) {
+      scene.updateMatrixWorld(true);
+      scene.traverse((o) => {
+        if (!o.isMesh || !o.castShadow) return;
+        if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+        o.getWorldScale(_ws);
+        const r = o.geometry.boundingSphere.radius * Math.max(_ws.x, _ws.y, _ws.z);
+        if (r < minRadius) o.castShadow = false;
+      });
+    }
+
+    function reduceFogBanks(keep = 5) {
+      cloudsGroup.children.forEach((s, i) => {
+        if (i >= keep) s.visible = false;
+        else s.material.opacity = 0.22;
+      });
     }
 
     let droneDecals = [];
@@ -3662,6 +3691,7 @@
     buildPagodaBack();
     applyLightBudget();
     restoreSavedQuality();
+    trimShadowCasters();
 
     // Pre-warm shaders and render a trial frame before dismissing loader
     try {
@@ -3705,15 +3735,43 @@
       }
     });
 
+    const DEBUG_GROUPS = {
+      Digit1: { name: 'fog', get: () => [cloudsGroup] },
+      Digit2: { name: 'glow', get: () => glowDecals },
+      Digit3: { name: 'rain', get: () => [rainSystem, rippleMesh, dripPoints] },
+      Digit4: { name: 'particles', get: () => [petalPoints, steamMesh] },
+      Digit5: { name: 'people', get: () => citizens },
+      Digit6: { name: 'speeders', get: () => [speeder1, speeder2, speeder3] }
+    };
+    window.addEventListener('keydown', (e) => {
+      const grp = DEBUG_GROUPS[e.code];
+      if (grp) {
+        const off = !debugOff[grp.name];
+        debugOff[grp.name] = off;
+        grp.get().forEach((o) => { o.visible = !off; });
+      }
+      if (e.code === 'Digit8') { // Toggle shadows (causes single shader recompilation freeze)
+        const off = !debugOff.shadows;
+        debugOff.shadows = off;
+        renderer.shadowMap.enabled = !off;
+        scene.traverse((o) => {
+          if (!o.material) return;
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; });
+        });
+      }
+    });
+
     function updateFpsMeter(rawDelta) {
       if (!meterOn) return;
       fpsFrames++;
       fpsAcc += rawDelta;
       if (fpsAcc >= 0.5) {
         const info = renderer.info.render;
+        const off = Object.keys(debugOff).filter((k) => debugOff[k]).join(',');
         fpsBox.textContent =
           Math.round(fpsFrames / fpsAcc) + ' FPS | calls ' + info.calls +
-          ' | tris ' + info.triangles + ' | ' + QUALITY_NAMES[quality];
+          ' | tris ' + info.triangles + ' | ' + QUALITY_NAMES[quality] +
+          (off ? ' | OFF: ' + off : '');
         fpsFrames = 0;
         fpsAcc = 0;
       }
@@ -3991,7 +4049,7 @@
             if (fpsSamples.length > 10) {
               fpsSamples.sort((a, b) => a - b);
               const medianFps = fpsSamples[Math.floor(fpsSamples.length / 2)];
-              if (medianFps < 28 && quality > 0) {
+              if (medianFps < 28 && quality > 1) {
                 setQuality(quality - 1);
                 warmupFrames = 0;
                 fpsSamples = [];
