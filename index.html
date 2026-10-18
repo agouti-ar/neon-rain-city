@@ -214,7 +214,7 @@
 
     // Toggle bloom manually with 'B'
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'b' || e.key === 'B' || e.key === 'и' || e.key === 'И') {
+      if (e.key === 'b' || e.key === 'B' || e.code === 'KeyB') {
         useBloom = !useBloom;
         fpsChecked = true;
         const w = window.innerWidth;
@@ -871,7 +871,7 @@
     function limb(radius, length, mat) {
       const pivot = new THREE.Group();
       const geo = new THREE.CapsuleGeometry(radius, length, 4, 8);
-      geo.translate(0, -(length / 2 + radius), 0); // верх капсулы в точке сустава
+      geo.translate(0, -(length / 2 + radius), 0); // Pivot at capsule joint origin
       pivot.add(new THREE.Mesh(geo, mat));
       pivot.userData.total = length + radius * 2;
       return pivot;
@@ -897,14 +897,14 @@
 
       const hipY = sitting ? 0.59 : 0.76;
 
-      // Торс (слегка приплюснут по Z)
+      // Torso mesh (elliptical Z-compression)
       const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.28, 4, 10), coatMat);
       torso.scale.set(1, 1, 0.72);
       torso.position.y = hipY + 0.28;
       torso.castShadow = true;
       g.add(torso);
 
-      // Неоновая полоса на спине
+      // Dorsal neon spine strip
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.38, 0.02), glowMat);
       stripe.position.set(0, hipY + 0.3, -0.115);
       g.add(stripe);
@@ -925,7 +925,7 @@
         g.add(ap);
       }
 
-      // Голова
+      // Cranial assembly
       const head = new THREE.Group();
       head.position.y = hipY + 0.7;
       g.add(head);
@@ -970,7 +970,7 @@
         head.add(band);
       }
 
-      // Руки: плечо -> предплечье
+      // Upper limbs: shoulder and forearm kinematics
       const makeArm = (side) => {
         const upper = limb(0.045, 0.2, coatMat);
         upper.position.set(side * 0.2, hipY + 0.5, 0);
@@ -986,7 +986,7 @@
       const armL = makeArm(-1);
       const armR = makeArm(1);
 
-      // Ноги
+      // Lower limbs: hip, thigh, and calf joints
       const makeLeg = (side) => {
         const thigh = limb(0.065, 0.24, coatMat);
         thigh.position.set(side * 0.085, hipY, 0);
@@ -1005,12 +1005,12 @@
       let chopsticks = null;
 
       if (sitting) {
-        // Сидит: бёдра вперёд, голени вниз
+        // Seated pose kinematics: forward hips, perpendicular shins
         [legL, legR].forEach((l) => {
           l.thigh.rotation.x = -Math.PI / 2;
           l.shin.rotation.x = Math.PI / 2;
         });
-        // Левая рука на стойке, правая с палочками к миске
+        // Dual-arm posing: resting left forearm, articulate right hand with chopsticks
         armL.upper.rotation.x = -0.5;
         armL.fore.rotation.x = -0.9;
         armR.upper.rotation.x = -0.7;
@@ -1033,7 +1033,7 @@
         armR.fore.rotation.x = -0.25;
       }
 
-      // Лёгкая «жизнь»: дыхание, повороты головы, подъём палочек
+      // Procedural micro-animations: thoracic breathing, cervical yaw, chopstick articulation
       g.userData.update = (t) => {
         torso.scale.y = 1 + Math.sin(t * 1.6 + phase) * 0.015;
         head.rotation.y = Math.sin(t * 0.4 + phase) * 0.15;
@@ -1087,7 +1087,7 @@
         })
       );
       patch.position.set(0, hipY + 0.3, -0.113);
-      patch.rotation.y = Math.PI; // смотрит назад (-Z)
+      patch.rotation.y = Math.PI; // Orient towards -Z (dorsal)
       citizen.add(patch);
     }
 
@@ -1111,20 +1111,20 @@
     }
 
     // ============================================================
-    // ПАТЧ 18 — РАЗНАЯ ОДЕЖДА И РЮКЗАКИ
+    // Wardrobe presets & procedural accessories
     // ============================================================
     const OUTFITS = [
-      { coat: 0xfacc15, hood: false },                        // жёлтый дождевик (как у девушки)
-      { coat: 0x2563eb, hood: true, trim: 0xff007f },         // синий худи
-      { coat: 0xdc2626, hood: false, longCoat: true },        // красное длинное пальто
-      { coat: 0x16a34a, hood: true, trim: 0xffaa00 },         // зелёная парка
-      { coat: 0xe5e7eb, hood: false, trim: 0x00f3ff },        // светлая куртка
-      { coat: 0x7c3aed, hood: true, trim: 0x00f3ff }          // фиолетовый
+      { coat: 0xfacc15, hood: false },                        // High-vis yellow raincoat
+      { coat: 0x2563eb, hood: true, trim: 0xff007f },         // Cobalt blue hoodie
+      { coat: 0xdc2626, hood: false, longCoat: true },        // Crimson trench coat
+      { coat: 0x16a34a, hood: true, trim: 0xffaa00 },         // Military green parka
+      { coat: 0xe5e7eb, hood: false, trim: 0x00f3ff },        // Neutral grey bomber
+      { coat: 0x7c3aed, hood: true, trim: 0x00f3ff }          // Royal purple jacket
     ];
 
     function createOutfitCitizen(i, extra = {}) {
       const c = createCitizen({ ...OUTFITS[i % OUTFITS.length], ...extra });
-      c.scale.setScalar(0.94 + Math.random() * 0.12); // немного разный рост
+      c.scale.setScalar(0.94 + Math.random() * 0.12); // Height variation variance
       return c;
     }
 
@@ -1181,29 +1181,29 @@
         return m;
       };
 
-      // Корпус: задняя масса + полая передняя часть (глубина z от 0.4 до 2.2)
+      // Structural envelope: solid rear mass + hollow interior envelope (Z: 0.4 to 2.2)
       add(B(4.4, 2.5, 2.6), wall, 0, 1.25, -0.9, true);
       add(B(0.2, 2.5, 1.8), wall, -2.1, 1.25, 1.3, true);
       add(B(0.2, 2.5, 1.8), wall, 2.1, 1.25, 1.3, true);
-      add(B(4.4, 0.25, 1.8), wall, 0, 2.375, 1.3, true);   // потолок
-      add(B(4.0, 0.06, 1.8), wood, 0, 0.03, 1.3);          // пол
+      add(B(4.4, 0.25, 1.8), wall, 0, 2.375, 1.3, true);   // Ceiling slab
+      add(B(4.0, 0.06, 1.8), wood, 0, 0.03, 1.3);          // Floor substrate
 
-      // Передняя стена с проёмом 2.8 x 1.18 (y от 0.62 до 1.8)
-      add(B(2.8, 0.62, 0.2), wall, 0, 0.31, 2.1, true);    // основание стойки
+      // Front facade with portal 2.8 x 1.18 (Y: 0.62 to 1.8)
+      add(B(2.8, 0.62, 0.2), wall, 0, 0.31, 2.1, true);    // Counter foundation
       add(B(0.8, 2.5, 0.2), wall, -1.8, 1.25, 2.1, true);
       add(B(0.8, 2.5, 0.2), wall, 1.8, 1.25, 2.1, true);
-      add(B(2.8, 0.7, 0.2), wall, 0, 2.15, 2.1, true);     // перемычка
+      add(B(2.8, 0.7, 0.2), wall, 0, 2.15, 2.1, true);     // Transom beam
 
-      // Тёплая внутренняя обшивка задней стены
+      // Interior rear wall timber cladding
       add(B(3.9, 2.0, 0.04), inner, 0, 1.2, 0.42);
 
-      // Неоновое меню на стене
+      // Backlit wall-mounted neon menu array
       add(B(2.4, 0.16, 0.03), MAT.neonAmber, 0, 1.68, 0.46);
       [-0.9, 0, 0.9].forEach((x, i) => {
         add(B(0.5, 0.06, 0.03), [MAT.neonPink, MAT.neonCyan, MAT.neonAmber][i], x, 1.45, 0.46);
       });
 
-      // Полки с бутылками и банками
+      // Backbar shelving with spirits and canned goods
       const bottleMats = [0x22c55e, 0xf97316, 0x38bdf8, 0xe11d48].map(
         (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.5, roughness: 0.3 })
       );
@@ -1221,24 +1221,24 @@
         }
       });
 
-      // Маленький ЭЛТ-телевизор на верхней полке
+      // Retro CRT monitor overhead
       add(B(0.55, 0.4, 0.3), MAT.metalPipe, 0.95, 1.55, 0.58);
       add(B(0.45, 0.3, 0.02), MAT.neonCyan, 0.95, 1.55, 0.74);
 
-      // Плита и кастрюля с бульоном
+      // Induction range & simmering stockpot
       add(B(0.9, 0.62, 0.6), MAT.metalPipe, -1.0, 0.37, 1.0, true);
       add(new THREE.CylinderGeometry(0.26, 0.24, 0.38, 12), MAT.metalPipe, -1.0, 0.82, 1.0, true);
       add(new THREE.CylinderGeometry(0.23, 0.23, 0.02, 12), MAT.neonAmber, -1.0, 1.0, 1.0);
       pg.userData.potSteamPos = new THREE.Vector3(-1.0, 1.05, 1.0);
 
-      // Лампочки на проводах
+      // Suspended festoon filament bulbs
       const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffd166, toneMapped: false });
       [[-0.9, 1.5], [0, 1.7], [0.9, 1.5]].forEach(([x, z]) => {
         add(new THREE.SphereGeometry(0.06, 8, 8), bulbMat, x, 2.0, z);
         add(new THREE.CylinderGeometry(0.008, 0.008, 0.3, 4), MAT.metalPipe, x, 2.2, z);
       });
 
-      // Повар за стойкой: стоит лицом к клиентам (+Z)
+      // Counter chef: facing patrons (+Z)
       const cook = createCitizen({
         coat: 0x1f2937, trim: 0xffaa00, hood: false, visor: false, headband: true, apron: true
       });
@@ -1246,7 +1246,7 @@
       pg.add(cook);
       citizens.push(cook);
 
-      // Клиент на табурете: лицом к лавке (-Z)
+      // Seated patron: facing counter (-Z)
       const customer = createCitizen({
         coat: 0x111827, trim: 0x00f3ff, sitting: true, eating: true
       });
@@ -1256,7 +1256,7 @@
       pg.add(customer);
       citizens.push(customer);
 
-      // Прохожая у зебры: жёлтый дождевик, без капюшона, с зонтом
+      // Pedestrian near crosswalk: yellow raincoat with umbrella
       const walker = createCitizen({
         coat: 0xfacc15, trim: 0xff007f, longCoat: true, hood: false, visor: true
       });
@@ -1276,7 +1276,7 @@
     // --- LEVEL 1: HOLLOW RAMEN SHOP STALL WITH INTERIOR & COOK ---
     buildRamenStall(pagodaGroup);
 
-    // Additional citizen on the hotel sidewalk (гость отеля с рюкзаком)
+    // Additional citizen on hotel sidewalk: hotel guest with commuter backpack
     const hotelGuest = createOutfitCitizen(1);
     addBackpack(hotelGuest, 0xff007f);
     hotelGuest.position.set(4.2, 0.25, 0.6);
@@ -2414,7 +2414,7 @@
     scene.add(speeder3);
 
     // ============================================================
-    // ПАТЧ 9 — ЗВУК: ГРОМ + МОЛНИЯ, ГУЛ ДРОНОВ, ТРЕСК НЕОНА, ШИПЕНИЕ, СВИСТ СПИДЕРОВ
+    // Spatial Audio System: procedural lightning/thunder, drone acoustics, neon coil hum, culinary hiss, speeder Doppler pass-by
     // ============================================================
     let audioExtras = null;
     let audioCtx = null;
@@ -2460,7 +2460,7 @@
       const noise = makeNoiseBuffer(ctx, 3);
       audioExtras = { noise, drones: [], speeders: [] };
 
-      // Гул дронов: тихая пила через фильтр, источник едет вместе с дроном
+      // Drone acoustic signature: filtered sawtooth carrier with modulated sine whine
       [drone1, drone2].forEach((d, i) => {
         const osc = ctx.createOscillator();
         osc.type = 'sawtooth';
@@ -2488,7 +2488,7 @@
         audioExtras.drones.push({ obj: d, panner: p });
       });
 
-      // Свист спидеров: полосовой шум, громкость растёт, когда спидер пролетает мимо острова
+      // Speeder Doppler acoustics: bandpassed noise attenuation by proximity
       [speeder1, speeder2, speeder3].forEach((s, i) => {
         const src = ctx.createBufferSource();
         src.buffer = noise;
@@ -2508,7 +2508,7 @@
         audioExtras.speeders.push({ obj: s, gain: g, panner: p });
       });
 
-      // Электрический гул вывесок («ラーメン» и «荒坂»), слегка «дышит»
+      // High-voltage ballast hum for primary neon signs («ラーメン» and «荒坂»)
       const hum = ctx.createOscillator();
       hum.type = 'sawtooth';
       hum.frequency.value = 100;
@@ -2533,7 +2533,7 @@
       hum.start();
       lfo.start();
 
-      // Шипение у лапшичной: высокочастотный шум с пульсацией
+      // Broth boiling acoustic emitter: high-frequency modulated noise
       const sz = ctx.createBufferSource();
       sz.buffer = noise;
       sz.loop = true;
@@ -2623,7 +2623,7 @@
     }
 
     // ============================================================
-    // ПАТЧ 10 — ОБЩИЕ ПОМОЩНИКИ (пар, световые пятна, обновления реквизита)
+    // Atmospheric VFX & Lighting Helpers: steam emitters, contact glow decals, prop update loops
     // ============================================================
     const propUpdates = [];
     const steamEmitters = [];
@@ -2634,7 +2634,7 @@
       return _glowTex;
     }
 
-    // Мягкое световое пятно на земле вместо лишней PointLight (дёшево для слабой видеокарты)
+    // Ground contact glow decal (low-cost rasterization fallback for point lights)
     function glowDecal(parent, x, z, size, colorHex, opacity, y = 0.012) {
       const m = new THREE.Mesh(
         new THREE.PlaneGeometry(size, size),
@@ -2654,7 +2654,7 @@
       return m;
     }
 
-    // Пар/дым: частицы затухают к чёрному (аддитивное смешивание), поэтому bloom их не «пережигает»
+    // Steam / exhaust particle simulation with additive blend and bloom clamping
     function createSteamEmitter(pos, { count = 26, height = 2.4, spread = 0.22, size = 0.9, color = 0x9fb4ff } = {}) {
       const geo = new THREE.BufferGeometry();
       const posArr = new Float32Array(count * 3);
@@ -2695,7 +2695,7 @@
             posArr[i * 3] = d.ox + Math.sin(a * 3 + d.ph) * spread * a * 4;
             posArr[i * 3 + 1] = a * height;
             posArr[i * 3 + 2] = d.oz;
-            const fade = Math.sin(Math.PI * a); // нарастает и гаснет
+            const fade = Math.sin(Math.PI * a); // Bell-curve alpha attenuation
             colArr[i * 3] = base.r * fade;
             colArr[i * 3 + 1] = base.g * fade;
             colArr[i * 3 + 2] = base.b * fade;
@@ -2709,7 +2709,7 @@
     }
 
     // ============================================================
-    // ПАТЧ 11 — ЗАДВОРКИ: ЧЁРНЫЙ ХОД, МИГАЮЩАЯ ЛАМПА, КОНТЕЙНЕР, МУСОР, КОТ, ПРОВОДА
+    // Service Alley: rear entrance, flickering industrial luminaire, dumpster, debris, street cat, utility cabling
     // ============================================================
     function createCat() {
       const g = new THREE.Group();
@@ -2780,7 +2780,7 @@
         return m;
       };
 
-      // Чёрный ход: дверь, рамка, ручка, табличка выхода, козырёк
+      // Service exit: portal door, perimeter frame, hardware, exit sign, weather canopy
       add(new THREE.BoxGeometry(1.1, 2.0, 0.04), MAT.metalPipe, 0.7, 1.0, -1.82);
       add(
         new THREE.BoxGeometry(0.95, 1.9, 0.08),
@@ -2796,7 +2796,7 @@
       const awning = add(new THREE.BoxGeometry(1.3, 0.05, 0.5), MAT.roofTile, 0.7, 2.1, -2.05);
       awning.rotation.x = -0.2;
 
-      // Мигающая настенная лампа и световое пятно на тротуаре
+      // Industrial wall bulkhead luminaire with intermittent flicker and ground decal
       add(new THREE.BoxGeometry(0.18, 0.12, 0.2), MAT.metalPipe, 1.55, 1.95, -1.9);
       const lensMat = new THREE.MeshBasicMaterial({ color: 0xffb703, toneMapped: false });
       add(new THREE.BoxGeometry(0.12, 0.05, 0.14), lensMat, 1.55, 1.87, -1.92);
@@ -2810,14 +2810,14 @@
         decal.material.opacity = 0.5 * f;
       });
 
-      // Труба вдоль стены с небольшой утечкой пара
+      // Wall-mounted conduit with pressure relief steam vent
       add(new THREE.CylinderGeometry(0.06, 0.06, 4.2, 8), MAT.metalPipe, -1.2, 2.1, -1.92);
       createSteamEmitter(
         new THREE.Vector3(4.8 - 1.2, 0.25 + 1.4, -2.8 - 2.05),
         { count: 16, height: 1.2, spread: 0.12, size: 0.5, color: 0xcbd5e1 }
       );
 
-      // Контейнер для мусора
+      // Commercial refuse dumpster
       const dumpster = new THREE.Group();
       dumpster.position.set(-0.9, 0, -2.8);
       dumpster.rotation.y = 0.2;
@@ -2831,14 +2831,14 @@
       [-0.5, 0, 0.5].forEach((x) => add(new THREE.BoxGeometry(0.05, 0.8, 0.03), MAT.metalPipe, x, 0.45, 0.41, dumpster));
       g.add(dumpster);
 
-      // Кот на крышке контейнера (смотрит в сторону улицы)
+      // Street cat perched on dumpster lid (facing streetward)
       const cat = createCat();
       cat.position.set(-0.5, 0.96, -2.7);
       cat.rotation.y = 0.5;
       g.add(cat);
       propUpdates.push(cat.userData.update);
 
-      // Мешки с мусором (глянцевый мокрый пластик)
+      // Refuse bags (specular wet polymer material)
       const bagMat = new THREE.MeshStandardMaterial({ color: 0x0b0b12, roughness: 0.22, metalness: 0.05 });
       [[0.5, -3.0, 0.26], [0.95, -2.7, 0.24], [0.3, -3.35, 0.22], [1.4, -3.1, 0.25]].forEach(([x, z, r]) => {
         const bag = add(new THREE.SphereGeometry(r, 12, 10), bagMat, x, r * 0.8, z);
@@ -2847,7 +2847,7 @@
         add(new THREE.ConeGeometry(0.05, 0.1, 6), bagMat, x, r * 1.55, z);
       });
 
-      // Ящики и разбросанные банки
+      // Stacking crates and discarded aluminum beverage cans
       const crateMat = new THREE.MeshStandardMaterial({ color: 0x5b3a1e, roughness: 0.7 });
       add(new THREE.BoxGeometry(0.55, 0.45, 0.55), crateMat, 2.1, 0.225, -2.5);
       add(new THREE.BoxGeometry(0.45, 0.4, 0.45), crateMat, 2.05, 0.65, -2.5).rotation.y = 0.4;
@@ -2862,7 +2862,7 @@
         can.rotation.y = Math.random() * 6;
       }
 
-      // Столб с проводами за отелем (координаты острова)
+      // Utility pole and overhead transmission cabling
       const poleX = 3.4;
       const poleZ = -6.4;
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 5.6, 8), MAT.timberDark);
@@ -2882,7 +2882,7 @@
     }
 
     // ============================================================
-    // ПАТЧ 12 — РЕКЛАМНЫЙ ЩИТ (оригинальный бренд) И ДОПОЛНИТЕЛЬНЫЕ ВЫВЕСКИ
+    // Commercial Billboard ("NEO·KOLA") & Auxiliary Architectural Signage
     // ============================================================
     function createBillboardTexture() {
       const w = 1024;
@@ -2899,7 +2899,7 @@
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
 
-      // Диагональные неоновые полосы
+      // Diagonal neon accent striping
       ctx.globalAlpha = 0.25;
       ['#00f3ff', '#ff007f'].forEach((col, i) => {
         ctx.fillStyle = col;
@@ -2912,7 +2912,7 @@
       });
       ctx.globalAlpha = 1;
 
-      // Банка напитка
+      // Cylindrical beverage can illustration
       const rr = (x, y, ww, hh, r) => {
         ctx.beginPath();
         ctx.moveTo(x + r, y);
@@ -2984,14 +2984,14 @@
         [-fw / 2, 0, ft, fh],
         [fw / 2, 0, ft, fh]
       ].forEach(([x, y, w, h]) => {
-        [0.14, -0.14].forEach((z) => { // спереди и сзади (щит двусторонний)
+        [0.14, -0.14].forEach((z) => { // Dual-sided display (front and rear)
           const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.04), frameMat);
           m.position.set(x, 3.3 + y, z);
           g.add(m);
         });
       });
 
-      // Мягкий ореол позади щита
+      // Volumetric backscatter glow halo
       const halo = new THREE.Sprite(new THREE.SpriteMaterial({
         map: getGlowTex(), color: 0xff3fa4, transparent: true, opacity: 0.3,
         depthWrite: false, blending: THREE.AdditiveBlending, fog: false
@@ -3000,7 +3000,7 @@
       halo.position.set(0, 3.3, -0.35);
       g.add(halo);
 
-      // «Дыхание» и редкое подмигивание рамки
+      // Frame luminaire modulation and micro-strobe cycle
       propUpdates.push((t) => {
         const flicker = Math.sin(t * 1.3) * Math.sin(t * 7.1) > 0.85 ? 0.35 : 1;
         const f = (0.78 + 0.22 * Math.sin(t * 3.1)) * flicker;
@@ -3041,7 +3041,7 @@
         ctx.fillRect(0, 0, w, h);
         ctx.globalAlpha = 0.18;
         ctx.fillStyle = '#99ffff';
-        for (let i = 0; i < 9; i++) { // ледяные кристаллы
+        for (let i = 0; i < 9; i++) { // Crystalline vector graphics
           const cx = 80 + i * 115;
           const cy = 60 + (i % 3) * 190;
           const s = 40 + (i % 4) * 14;
@@ -3080,7 +3080,7 @@
     }
 
     function addBillboardAnimation(board, g) {
-      // Смена кадров рекламы
+      // Advertising reel sequencer (timed texture cycling)
       const faceMat = board.userData.faceMat;
       const slides = [faceMat.map, createBillboardAdTexture(1), createBillboardAdTexture(2)];
       let current = 0;
@@ -3091,14 +3091,14 @@
           faceMat.map = slides[current];
           lastSwitch = t;
         }
-        const glitch = t - lastSwitch < 0.22; // короткий глитч сразу после смены
+        const glitch = t - lastSwitch < 0.22; // Post-transition digital chromatic glitch
         slides.forEach((s) => { s.offset.x = 0; });
         if (glitch) slides[current].offset.x = (Math.random() - 0.5) * 0.04;
         const f = glitch ? 0.6 + Math.random() * 0.4 : 1;
         faceMat.color.setRGB(f, f, f);
       });
 
-      // Бегущие лампочки по периметру (по одному InstancedMesh на обе стороны)
+      // Perimeter marquee chase lights (dual-sided InstancedMesh)
       const fw = 3.9;
       const fh = 2.35;
       const perim = 2 * (fw + fh);
@@ -3160,12 +3160,12 @@
       });
       glowDecal(g, 0, 0.9, 4.2, 0x00c8ff, 0.3);
       g.position.set(-6.9, 0.25, 5.2);
-      g.rotation.y = Math.PI / 2; // лицом к улице (+X)
+      g.rotation.y = Math.PI / 2; // Facing street axis (+X)
       islandGroup.add(g);
     }
 
     function buildExtraSigns() {
-      // Вертикальная «酒場» на левой стене лапшичной
+      // Vertical «酒場» neon sign on left facade
       const sakeTex = createHDNeonSignTexture({
         width: 512, height: 1024, text: '酒場', color: '#ff2fa8', glowColor: '#ff007f',
         coreColor: '#fff0f8', isVertical: true, fontSize: 200
@@ -3177,7 +3177,7 @@
       sake.rotation.y = -Math.PI / 2;
       pagodaGroup.add(sake);
 
-      // «24H» на правой стене отеля
+      // Illuminated «24H» marquee on hotel flank
       const hTex = createHDNeonSignTexture({
         width: 1024, height: 512, text: '24H', color: '#39ff88', glowColor: '#16a34a',
         coreColor: '#f0fff6', fontSize: 230
@@ -3191,7 +3191,7 @@
     }
 
     // ============================================================
-    // ПАТЧ 13 — ПУСТЫЕ МЕСТА: ЦВЕТОЧНИЦА И СКАМЬЯ У САКУРЫ, АВТОБУСНАЯ ОСТАНОВКА, ПАР ИЗ ЛЮКА
+    // Street Infrastructure: sakura garden planter, transit shelter, utility steam grate
     // ============================================================
     function buildTreeSurroundings() {
       const g = sakuraGroup;
@@ -3211,10 +3211,10 @@
       ring.position.y = 0.2;
       g.add(ring);
 
-      // Ковёр из лепестков вокруг цветочницы
+      // Petal scatter decal surrounding tree planter
       glowDecal(g, 0, 0, 4.2, 0xff4fa3, 0.45);
 
-      // Светящиеся цветы в земле
+      // Bioluminescent ground flora
       const flowerColors = [0x00f3ff, 0xff007f, 0xffaa00];
       for (let i = 0; i < 9; i++) {
         const a = Math.random() * Math.PI * 2;
@@ -3232,7 +3232,7 @@
         g.add(bud);
       }
 
-      // Скамья лицом к дороге
+      // Street bench oriented towards thoroughfare
       const bench = new THREE.Group();
       const wood = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.55 });
       const seat = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.4), wood);
@@ -3247,7 +3247,7 @@
       });
       bench.traverse((m) => { if (m.isMesh) m.castShadow = true; });
       bench.position.set(-5.6, 0.25, 3.3);
-      bench.rotation.y = Math.PI / 2; // лицом к дороге (+X)
+      bench.rotation.y = Math.PI / 2; // Orient towards roadway (+X)
       islandGroup.add(bench);
     }
 
@@ -3266,7 +3266,7 @@
       const wood = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.55 });
 
       add(new THREE.BoxGeometry(2.0, 0.08, 1.0), MAT.metalPipe, 0, 2.3, 0);
-      add(new THREE.BoxGeometry(1.9, 0.03, 0.9), MAT.neonCyan, 0, 2.25, 0); // подсветка под крышей
+      add(new THREE.BoxGeometry(1.9, 0.03, 0.9), MAT.neonCyan, 0, 2.25, 0); // Under-canopy ambient strip
       [-0.95, 0.95].forEach((x) => add(new THREE.CylinderGeometry(0.04, 0.04, 2.3, 6), MAT.metalPipe, x, 1.15, -0.45));
       add(new THREE.BoxGeometry(1.9, 1.7, 0.03), glass, 0, 1.2, -0.45);
       add(new THREE.BoxGeometry(1.4, 0.07, 0.38), wood, 0, 0.45, -0.2);
@@ -3284,16 +3284,16 @@
 
       glowDecal(g, 0, 0.1, 3.2, 0x38bdf8, 0.3);
       g.position.set(3.9, 0.25, 6.0);
-      g.rotation.y = -Math.PI / 2; // лицом к дороге (-X)
+      g.rotation.y = -Math.PI / 2; // Facing roadway (-X)
       islandGroup.add(g);
     }
 
-    // Человек в остановке (вызови после buildBusStop()):
+    // Commuter waiting at transit shelter:
     function addStopPerson() {
       const p = createOutfitCitizen(3);
       addBackpack(p, 0x111827);
       p.position.set(3.55, 0.25, 6.0);
-      p.rotation.y = -Math.PI / 2; // лицом к дороге (-X)
+      p.rotation.y = -Math.PI / 2; // Facing roadway (-X)
       islandGroup.add(p);
       citizens.push(p);
     }
@@ -3310,7 +3310,7 @@
       canopy.castShadow = true;
       hotelGroup.add(canopy);
       const strip = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.03, 0.9), MAT.neonCyan);
-      strip.position.set(0, 2.1, 2.35); // подсветка снизу навеса
+      strip.position.set(0, 2.1, 2.35); // Under-canopy downlight strip
       hotelGroup.add(strip);
       glowDecal(hotelGroup, 0, 2.7, 3.0, 0x00f3ff, 0.28);
     }
@@ -3350,7 +3350,7 @@
         return m;
       };
 
-      // Окна на задней стене: часть светится, часть тёмная, одно «телевизионное»
+      // Rear fenestration: active occupancy, dormant units, and CRT flicker
       const warm = new THREE.MeshStandardMaterial({ color: 0xffbe0b, emissive: 0xffa000, emissiveIntensity: 0.9, roughness: 0.3 });
       const dim = new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.2, metalness: 0.6 });
       const tvMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, toneMapped: false });
@@ -3367,10 +3367,10 @@
         tvMat.color.setRGB(0.2 * f, 0.45 * f, 1.0 * f);
       });
 
-      // Балкон на высоте второго этажа
+      // Second-floor cantilevered balcony
       const deckY = 2.55;
       add(new THREE.BoxGeometry(1.7, 0.08, 0.9), MAT.metalPipe, 0.9, deckY, -2.25);
-      add(new THREE.BoxGeometry(0.8, 1.2, 0.04), warm, 0.9, 3.2, -1.83); // балконная дверь, тёплый свет
+      add(new THREE.BoxGeometry(0.8, 1.2, 0.04), warm, 0.9, 3.2, -1.83); // Balcony access door with warm transmittance
       [0.07, 0.9, 1.73].forEach((x) => {
         add(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 6), MAT.metalPipe, x, deckY + 0.49, -2.68);
       });
@@ -3385,10 +3385,10 @@
         strut.rotation.x = 0.68;
       });
 
-      // Курильщик у перил: лицо видно (без визора), тлеющий огонёк и дым
+      // Resident at balcony railing: unshielded portrait, incandescence ember, thermal plume
       const smoker = createOutfitCitizen(2, { visor: false });
       smoker.position.set(0.9, deckY + 0.04, -2.25);
-      smoker.rotation.y = Math.PI; // лицом к -Z (к перилам)
+      smoker.rotation.y = Math.PI; // Facing balcony railing (-Z)
       g.add(smoker);
       citizens.push(smoker);
 
@@ -3400,10 +3400,10 @@
       ember.position.set(0.07, hipY + 0.63, 0.14);
       smoker.add(ember);
       propUpdates.push((t) => {
-        const drag = t % 4.5 < 1.0 ? 1 : 0.35; // раз в несколько секунд «затяжка»
+        const drag = t % 4.5 < 1.0 ? 1 : 0.35; // Periodic inhalation ember intensity cycle
         ember.material.color.setRGB(1 * drag, 0.4 * drag, 0);
       });
-      // Дым над огоньком (координаты острова: отель + локальные)
+      // Micro-steam plume above cigarette ember (world-space transform)
       createSteamEmitter(
         new THREE.Vector3(4.8 + 0.83, 0.25 + deckY + 0.04 + hipY + 0.63, -2.8 - 2.39),
         { count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1 }
@@ -3411,7 +3411,7 @@
     }
 
     function buildPagodaBack() {
-      const g = pagodaGroup; // задняя стена лавки: z = -2.2, второй этаж: z = -1.6
+      const g = pagodaGroup; // Rear facade datum: Z = -2.2, upper tier Z = -1.6
       const add = (geo, mat, x, y, z) => {
         const m = new THREE.Mesh(geo, mat);
         m.position.set(x, y, z);
@@ -3422,7 +3422,7 @@
       const darkWood = new THREE.MeshStandardMaterial({ color: 0x3b2a1c, roughness: 0.7 });
       const wood = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.6 });
 
-      // Кухонная дверь с короткой занавеской
+      // Kitchen service entrance with noren curtain
       add(new THREE.BoxGeometry(1.1, 2.0, 0.05), MAT.metalPipe, -1.2, 1.0, -2.22);
       add(new THREE.BoxGeometry(0.95, 1.9, 0.07), darkWood, -1.2, 0.95, -2.26);
       add(
@@ -3431,7 +3431,7 @@
         -1.2, 1.55, -2.33
       );
 
-      // Бумажный фонарь (качается), тёплое пятно на земле
+      // Suspended chochin lantern with pendulum sway and ground bounce
       const lantern = new THREE.Group();
       lantern.position.set(-0.35, 2.3, -2.4);
       const lanternMat = new THREE.MeshStandardMaterial({ color: 0xff2a14, emissive: 0xff3b00, emissiveIntensity: 1.1, roughness: 0.6 });
@@ -3445,20 +3445,20 @@
       propUpdates.push((t) => { lantern.rotation.z = Math.sin(t * 1.7) * 0.06; });
       glowDecal(g, -0.35, -3.0, 2.4, 0xff5a1f, 0.35);
 
-      // Люминесцентная лампа над дверью
+      // Industrial fluorescent tube over service entrance
       const tubeMat = new THREE.MeshBasicMaterial({ color: 0xd9fff5, toneMapped: false });
       add(new THREE.BoxGeometry(0.9, 0.08, 0.06), MAT.metalPipe, -1.2, 2.24, -2.26);
       add(new THREE.BoxGeometry(0.8, 0.05, 0.05), tubeMat, -1.2, 2.18, -2.3);
       const tubeDecal = glowDecal(g, -1.2, -3.2, 2.8, 0xbfffe8, 0.35);
       propUpdates.push((t) => {
         const p = t % 7.0;
-        // две короткие «заминки» подряд, дальше ровный свет
+        // Dual rapid ignition flickers followed by steady emission
         const on = p < 0.12 ? 0.1 : p < 0.25 ? 1 : p < 0.34 ? 0.1 : 1;
         tubeMat.color.setRGB(0.85 * on + 0.05, 1.0 * on + 0.05, 0.96 * on + 0.05);
         tubeDecal.material.opacity = 0.35 * on;
       });
 
-      // Бочки с саке (обручи) и цветные ящики
+      // Sake storage barrels with iron hoops and utility cargo crates
       const barrelMat = new THREE.MeshStandardMaterial({ color: 0x7c4a1f, roughness: 0.65 });
       const ringMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.4, metalness: 0.6 });
       [[0.9, -3.0], [1.45, -2.85], [1.15, -3.45]].forEach(([x, z]) => {
@@ -3478,7 +3478,7 @@
           crate.rotation.y = r;
         });
 
-      // Картонные коробки, ведро, веник (мусор другого рода, чем контейнер у отеля)
+      // Corrugated cardboard packaging, bucket, and straw broom
       const cardboard = new THREE.MeshStandardMaterial({ color: 0x9a7b4f, roughness: 0.9 });
       [[0.35, -2.7, 0.5, 0.28, 0.4, 0.3], [0.6, -2.65, 0.35, 0.22, 0.3, -0.2],
        [-0.1, -4.1, 0.6, 0.02, 0.5, 0.8], [0.0, -4.12, 0.55, 0.02, 0.45, 0.5]]
@@ -3490,7 +3490,7 @@
       const broom = add(new THREE.CylinderGeometry(0.012, 0.012, 1.3, 5), wood, -0.55, 0.64, -2.3);
       broom.rotation.z = 0.15;
 
-      // Велосипед доставки
+      // Delivery bicycle assembly
       const bike = new THREE.Group();
       const metal = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.4, metalness: 0.7 });
       [-0.45, 0.45].forEach((x) => {
@@ -3522,7 +3522,7 @@
       bike.rotation.y = 0.35;
       g.add(bike);
 
-      // Бельё на верёвке
+      // Suspended clothesline with wind-driven planar dynamics
       [-2.5, 1.75].forEach((x) => add(new THREE.CylinderGeometry(0.04, 0.04, 2.3, 6), wood, x, 1.15, -3.7));
       const lineRope = add(new THREE.CylinderGeometry(0.008, 0.008, 4.25, 4), MAT.metalPipe, -0.375, 2.2, -3.7);
       lineRope.rotation.z = Math.PI / 2;
@@ -3541,7 +3541,7 @@
         });
       });
 
-      // Маленькое святилище с огоньком, лицом к центру двора
+      // Miniature shinto shrine with sacred votive flame
       const shrine = new THREE.Group();
       const stone = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.8 });
       const sb = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.5), stone);
@@ -3560,7 +3560,7 @@
       g.add(shrine);
       glowDecal(g, -2.1, -4.2, 1.6, 0xffa63d, 0.25);
 
-      // Повар на перерыве: сидит на ящике лицом к краю острова (смотрит на дождь)
+      // Line cook on break: seated on cargo crate observing rainward perimeter
       const crateSeat = add(new THREE.BoxGeometry(0.5, 0.52, 0.5), wood, -0.3, 0.26, -3.2);
       crateSeat.rotation.y = 0.2;
       const cook = createCitizen({
@@ -3571,7 +3571,7 @@
       g.add(cook);
       citizens.push(cook);
 
-      // Окна на задней стороне второго этажа: тёплое окно и тёмное
+      // Upper-tier rear fenestration: illuminated and dark pod units
       const warmWin = new THREE.MeshStandardMaterial({ color: 0xffbe0b, emissive: 0xffa000, emissiveIntensity: 0.9, roughness: 0.3 });
       const darkWin = new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.2, metalness: 0.6 });
       [[-0.7, warmWin], [0.7, darkWin]].forEach(([x, mat]) => {
@@ -3581,11 +3581,11 @@
     }
 
     // ============================================================
-    // ПАТЧ 16 / 23 — НАСТРОЙКИ КАЧЕСТВА
+    // Graphic Fidelity Settings: Dynamic Render Scale & Shadow Throttle
     // ============================================================
     const QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
     let quality = 2;
-    let shadowEvery = 2; // обновлять тени каждые N кадров
+    let shadowEvery = 2; // Shadow map refresh interval (every N frames)
     let shadowTick = 0;
 
     function setQuality(q) {
@@ -3624,7 +3624,7 @@
           setQuality(Number(saved));
           fpsChecked = true;
         }
-      } catch (err) { /* без хранилища */ }
+      } catch (err) { /* Storage access unavailable */ }
     }
 
     let droneDecals = [];
@@ -3640,7 +3640,7 @@
       });
       toRemove.forEach((l) => l.parent.remove(l));
 
-      // Дешёвая замена отсветов: бирюзовое пятно под байком и пятна под дронами
+      // Low-cost ground contact radiance decals for vehicle and drones
       glowDecal(islandGroup, -3.2, 1.4, 3.0, 0x00f3ff, 0.35, 0.03);
       droneDecals = [drone1, drone2].map((d, i) =>
         glowDecal(islandGroup, 0, 0, 2.6, i ? 0xa855f7 : 0x00f3ff, 0.4, 0.03)
@@ -3670,24 +3670,24 @@
         new Promise((resolve) => setTimeout(resolve, 2500))
       ]);
     } catch (e) {
-      console.warn('compileAsync пропущен:', e);
+      console.warn('compileAsync skipped:', e);
     }
     renderer.render(scene, camera);
     const loader = document.getElementById('loader');
     if (loader) loader.classList.add('hidden');
 
     // ============================================================
-    // ПАТЧ 23.4 — ОБРАБОТЧИК ВЫБОРА КАЧЕСТВА (КЛАВИША Q)
+    // Quality Toggle & Persistence (Key: 'Q')
     // ============================================================
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'KeyQ') return;
       const next = (quality + 2) % 3; // HIGH -> MEDIUM -> LOW -> HIGH
       setQuality(next);
-      fpsChecked = true; // ручной выбор: автоопределение отключено
-      try { localStorage.setItem('island-quality', String(next)); } catch (err) { /* без хранилища */ }
+      fpsChecked = true; // Manual selection overrides automatic watchdog
+      try { localStorage.setItem('island-quality', String(next)); } catch (err) { /* Storage access unavailable */ }
     });
 
-    // FPS-метр (клавиша F): FPS, число вызовов отрисовки, треугольники
+    // Performance HUD (Key: 'F'): Framerate, Draw Calls, Triangle Count, Quality Preset
     const fpsBox = document.createElement('div');
     Object.assign(fpsBox.style, {
       position: 'fixed', left: '12px', top: '12px', zIndex: '60', padding: '6px 10px',
@@ -3729,7 +3729,7 @@
     // Reset clock and restart watchdog when tab returns from background
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
-        clock.getDelta(); // «съедает» накопленную паузу
+        clock.getDelta(); // Flush accumulated delta time after tab visibility change
         if (!fpsChecked) {
           warmupFrames = 0;
           fpsSamples = [];
@@ -3754,7 +3754,7 @@
       patrolPos(t, phase, speed, ampX, ampZ, baseY, 0.3, _dTmpA);
       patrolPos(t + 0.05, phase, speed, ampX, ampZ, baseY, 0.3, _dTmpB);
       drone.position.copy(_dTmpA);
-      // «глаз» дрона смотрит в +Z, поэтому поворачиваем по направлению движения
+      // Drone forward axis (+Z): align yaw heading with velocity vector
       drone.rotation.y = Math.atan2(_dTmpB.x - _dTmpA.x, _dTmpB.z - _dTmpA.z);
     }
 
@@ -4029,11 +4029,11 @@
     });
 
     // ============================================================
-    // ПАТЧ 2 — ЗВУК: ДОЖДЬ + СИНТ-ПЭД (Web Audio, без файлов)
+    // Procedural Soundscape Engine: Rain & Synthesizer Pad (Web Audio API)
     // ============================================================
-    // Нагрузка на процессор минимальная (несколько осцилляторов и один буфер шума),
-    // на FPS почти не влияет. Звук по умолчанию ВЫКЛЮЧЕН: браузеры требуют клика.
-    // Вставь этот блок в конец module-скрипта (после animate();).
+    // Minimal CPU load: procedural synthesis via filtered noise buffers & detuned oscillators.
+    // Zero perceptible impact on render frametime. Audio defaults to muted per browser policy.
+    // Master audio bus & UI controls
 
 
     function buildAudio() {
@@ -4042,7 +4042,7 @@
       masterGain.gain.value = 0;
       masterGain.connect(audioCtx.destination);
 
-      // --- Дождь: зацикленный белый шум через фильтры ---
+      // --- Ambient precipitation: looped band-filtered white noise buffer ---
       const len = audioCtx.sampleRate * 2;
       const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
       const data = buf.getChannelData(0);
@@ -4067,7 +4067,7 @@
       rainGain.connect(masterGain);
       noise.start();
 
-      // --- Мягкий пэд: аккорд Am9, слегка расстроенные осцилляторы ---
+      // --- Atmospheric pad: Am9 chord across detuned harmonic oscillators ---
       const padFilter = audioCtx.createBiquadFilter();
       padFilter.type = 'lowpass';
       padFilter.frequency.value = 700;
@@ -4088,7 +4088,7 @@
         });
       });
 
-      // Медленное «дыхание» фильтра
+      // Sub-audible LFO filter cutoff modulation
       const lfo = audioCtx.createOscillator();
       lfo.frequency.value = 0.07;
       const lfoGain = audioCtx.createGain();
@@ -4101,7 +4101,7 @@
     }
 
     const soundBtn = document.createElement('button');
-    soundBtn.textContent = '🔇 Звук';
+    soundBtn.textContent = '🔇 Audio';
     Object.assign(soundBtn.style, {
       position: 'absolute',
       right: '18px',
@@ -4123,7 +4123,7 @@
       if (audioCtx.state === 'suspended') await audioCtx.resume();
       audioOn = !audioOn;
       masterGain.gain.setTargetAtTime(audioOn ? 0.6 : 0, audioCtx.currentTime, 0.4);
-      soundBtn.textContent = audioOn ? '🔊 Звук' : '🔇 Звук';
+      soundBtn.textContent = audioOn ? '🔊 Audio' : '🔇 Audio';
     });
 
     window.addEventListener('keydown', (e) => {
@@ -4134,7 +4134,7 @@
       meterOn = false;
     });
 
-    // Не шуметь, когда вкладка скрыта
+    // Suspend audio rendering when tab is backgrounded
     document.addEventListener('visibilitychange', () => {
       if (!audioCtx) return;
       if (document.hidden) audioCtx.suspend();
