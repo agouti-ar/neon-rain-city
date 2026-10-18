@@ -3580,6 +3580,73 @@
       });
     }
 
+    // ============================================================
+    // ПАТЧ 16 / 23 — НАСТРОЙКИ КАЧЕСТВА
+    // ============================================================
+    const QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
+    let quality = 2;
+    let shadowEvery = 2; // обновлять тени каждые N кадров
+    let shadowTick = 0;
+
+    function setQuality(q) {
+      quality = q;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+
+      if (q === 2) {
+        useBloom = true;
+        renderer.setPixelRatio(Math.min(dpr, 2));
+        shadowEvery = 2;
+      } else if (q === 1) {
+        useBloom = true;
+        renderer.setPixelRatio(Math.min(dpr, 1) * 0.75);
+        shadowEvery = 4;
+      } else {
+        useBloom = false;
+        renderer.setPixelRatio(Math.min(dpr, 1) * 0.6);
+        shadowEvery = 6;
+      }
+
+      renderer.setSize(w, h);
+      composer.setPixelRatio(renderer.getPixelRatio());
+      composer.setSize(w, h);
+      if (q === 1) {
+        const pr = renderer.getPixelRatio();
+        bloomPass.setSize(Math.floor((w * pr) / 2), Math.floor((h * pr) / 2));
+      }
+    }
+
+    function restoreSavedQuality() {
+      try {
+        const saved = localStorage.getItem('island-quality');
+        if (saved !== null && [0, 1, 2].includes(Number(saved))) {
+          setQuality(Number(saved));
+          fpsChecked = true;
+        }
+      } catch (err) { /* без хранилища */ }
+    }
+
+    let droneDecals = [];
+
+    function applyLightBudget() {
+      const keep = new Set([
+        ramenWarmLight, neonPinkLight, neonCyanLight, sakuraPinkLight,
+        underIslandLight, bikeWarmLight
+      ]);
+      const toRemove = [];
+      scene.traverse((o) => {
+        if (o.isPointLight && !keep.has(o)) toRemove.push(o);
+      });
+      toRemove.forEach((l) => l.parent.remove(l));
+
+      // Дешёвая замена отсветов: бирюзовое пятно под байком и пятна под дронами
+      glowDecal(islandGroup, -3.2, 1.4, 3.0, 0x00f3ff, 0.35, 0.03);
+      droneDecals = [drone1, drone2].map((d, i) =>
+        glowDecal(islandGroup, 0, 0, 2.6, i ? 0xa855f7 : 0x00f3ff, 0.4, 0.03)
+      );
+    }
+
     // Call builders before animate
     buildBackAlley();
     buildBillboard();
@@ -3593,6 +3660,8 @@
     polishParticles();
     buildHotelBack();
     buildPagodaBack();
+    applyLightBudget();
+    restoreSavedQuality();
 
     // Pre-warm shaders and render a trial frame before dismissing loader
     try {
@@ -3608,46 +3677,14 @@
     if (loader) loader.classList.add('hidden');
 
     // ============================================================
-    // ПАТЧ 16 — НАСТРОЙКИ КАЧЕСТВА И FPS-МЕТР
+    // ПАТЧ 23.4 — ОБРАБОТЧИК ВЫБОРА КАЧЕСТВА (КЛАВИША Q)
     // ============================================================
-    const QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
-    let quality = 2;
-    let shadowEvery = 2; // обновлять тени каждые N кадров
-    let shadowTick = 0;
-
-    function setQuality(q) {
-      quality = q;
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-
-      if (q === 2) {
-        // HIGH: всё, как есть сейчас
-        useBloom = true;
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        shadowEvery = 2;
-      } else if (q === 1) {
-        // MEDIUM: bloom остаётся, но дешевле (в четверть разрешения), без тени от лампы у байка
-        useBloom = true;
-        renderer.setPixelRatio(1);
-        shadowEvery = 4;
-      } else {
-        // LOW: без bloom
-        useBloom = false;
-        renderer.setPixelRatio(1);
-        shadowEvery = 6;
-      }
-
-      renderer.setSize(w, h);
-      composer.setPixelRatio(renderer.getPixelRatio());
-      composer.setSize(w, h);
-      if (q === 1) {
-        const pr = renderer.getPixelRatio();
-        bloomPass.setSize(Math.floor((w * pr) / 2), Math.floor((h * pr) / 2)); // внутри делится на 2 ещё раз
-      }
-    }
-
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyQ') setQuality((quality + 2) % 3); // HIGH -> MEDIUM -> LOW -> HIGH
+      if (e.code !== 'KeyQ') return;
+      const next = (quality + 2) % 3; // HIGH -> MEDIUM -> LOW -> HIGH
+      setQuality(next);
+      fpsChecked = true; // ручной выбор: автоопределение отключено
+      try { localStorage.setItem('island-quality', String(next)); } catch (err) { /* без хранилища */ }
     });
 
     // FPS-метр (клавиша F): FPS, число вызовов отрисовки, треугольники
@@ -3686,6 +3723,8 @@
     // 13. ANIMATION LOOP (Solid 60 FPS Performance)
     // ========================================================
     const clock = new THREE.Clock();
+    const TIME_SCALE = Math.min(1, Math.max(0.1, parseFloat(new URLSearchParams(location.search).get('slow')) || 1));
+    let simTime = 0;
 
     // Reset clock and restart watchdog when tab returns from background
     document.addEventListener('visibilitychange', () => {
@@ -3719,14 +3758,21 @@
       drone.rotation.y = Math.atan2(_dTmpB.x - _dTmpA.x, _dTmpB.z - _dTmpA.z);
     }
 
+    function updateDroneDecals() {
+      [drone1, drone2].forEach((d, i) => {
+        if (droneDecals[i]) droneDecals[i].position.set(d.position.x, 0.03, d.position.z);
+      });
+    }
+
     function animate() {
       requestAnimationFrame(animate);
       renderer.info.reset();
 
       // Clamp delta to avoid leaps after background tab pauses
       const rawDelta = clock.getDelta();
-      const delta = Math.min(rawDelta, 0.05);
-      const time = clock.getElapsedTime();
+      const delta = Math.min(rawDelta, 0.05) * TIME_SCALE;
+      simTime += delta;
+      const time = simTime;
 
       // 1. Organic Island Levitation
       islandGroup.position.y = Math.sin(time * 0.8) * 0.28;
@@ -3826,6 +3872,7 @@
       // 8. Clean Patrol Drones Street Corridor Navigation
       updateDrone(drone1, time, 0.0, 0.50, 1.8, 6.2, 2.7);
       updateDrone(drone2, time, 2.4, 0.40, 1.6, 5.8, 3.3);
+      updateDroneDecals();
 
       // 9. AC Unit High-Speed Fan Spin
       acFan.rotation.z += delta * 24.0;
@@ -3914,7 +3961,7 @@
       if (speeder3.position.x > 40) speeder3.position.x = -40;
 
       // Gentle pulsing of under-island void levitation light
-      underIslandLight.intensity = 5.2 + 0.6 * Math.sin(time * 2.0);
+      underIslandLight.intensity = 6.4 + 0.6 * Math.sin(time * 2.0);
 
       // Micro-animations for Urban Props & Steam Emitters (Patches 10-13)
       propUpdates.forEach((fn) => fn(time));
@@ -3960,7 +4007,6 @@
       }
 
       if (++shadowTick >= shadowEvery) { shadowTick = 0; renderer.shadowMap.needsUpdate = true; }
-      updateFpsMeter(rawDelta);
 
       // 16. Render Frame (EffectComposer Bloom or Native Fallback)
       if (useBloom) {
@@ -3968,6 +4014,7 @@
       } else {
         renderer.render(scene, camera);
       }
+      updateFpsMeter(rawDelta);
     }
 
     animate();
