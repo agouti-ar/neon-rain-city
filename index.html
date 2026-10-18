@@ -1143,12 +1143,34 @@
     function poseLeanSmoke(c) {
       const p = c.userData.parts;
       c.rotation.order = 'YXZ';
-      c.rotation.x = 0.26;
-      p.armL.upper.rotation.set(-0.02, 0, -0.08);
-      p.armL.fore.rotation.x = -1.29;
-      p.armR.upper.rotation.set(-0.5, 0, 0.1);
-      p.armR.fore.rotation.x = -2.1;
-      c.userData.headPitch = 0.1;
+      c.rotation.x = 0.20; // Forward tilt from feet
+      // Left arm and forearm resting flat on top of the horizontal handrail bar
+      p.armL.upper.rotation.set(-0.72, 0, -0.10);
+      p.armL.fore.rotation.x = -0.80;
+      // Right arm: elbow braced near rail with forearm angled up to chin/lips
+      p.armR.upper.rotation.set(-0.62, 0, 0.16);
+      p.armR.fore.rotation.x = -1.98;
+      c.userData.headPitch = 0.06;
+    }
+
+    function poseWallLean(c) {
+      const p = c.userData.parts;
+      c.rotation.order = 'YXZ';
+      c.rotation.x = -0.09; // Leaning back comfortably against the wall
+      // Right leg straight support
+      p.legR.thigh.rotation.set(0.06, 0, 0.04);
+      p.legR.shin.rotation.x = -0.04;
+      // Left leg propped up: knee raised, foot braced flat against the wall
+      p.legL.thigh.rotation.set(-0.85, 0, -0.08);
+      p.legL.shin.rotation.x = 1.35;
+      // Left arm resting in pocket / side
+      p.armL.upper.rotation.set(-0.32, 0, -0.12);
+      p.armL.fore.rotation.x = -0.45;
+      // Right arm holding cigarette up towards mouth
+      p.armR.upper.rotation.set(-0.62, 0, 0.18);
+      p.armR.fore.rotation.x = -2.05;
+      c.userData.headYaw = 0.25;
+      c.userData.headPitch = -0.04;
     }
 
     function poseKiss(a, b) {
@@ -2022,8 +2044,8 @@
 
     // Parked at the sidewalk curb near the pedestrian crosswalk zebra
     const akiraBike = createYaibaKusanagiBike();
-    akiraBike.position.set(-3.2, 0.25, 1.4);
-    akiraBike.rotation.y = -0.22;
+    akiraBike.position.set(-3.75, 0.25, 1.35);
+    akiraBike.rotation.y = -0.65;
     akiraBike.castShadow = true;
     islandGroup.add(akiraBike);
 
@@ -3654,27 +3676,26 @@
       });
 
       // Resident at balcony railing: unshielded portrait, incandescence ember, thermal plume
-      const smoker = createOutfitCitizen(2, { visor: false });
-      smoker.position.set(0.9, deckY + 0.04, -2.15);
+      const smoker = createOutfitCitizen(1, { hood: false, visor: false, longCoat: true });
+      smoker.position.set(0.9, deckY + 0.04, -2.34);
       smoker.rotation.y = Math.PI; // Facing balcony railing (-Z)
       poseLeanSmoke(smoker);
       g.add(smoker);
       citizens.push(smoker);
 
-      const hipY = smoker.userData.hipY ?? 0.76;
       const ember = new THREE.Mesh(
         new THREE.SphereGeometry(0.014, 6, 6),
         new THREE.MeshBasicMaterial({ color: 0xff6a00, toneMapped: false })
       );
-      ember.position.set(0.07, hipY + 0.63, 0.14);
-      smoker.add(ember);
+      ember.position.set(0, -0.21, 0.02);
+      smoker.userData.parts.armR.fore.add(ember);
       propUpdates.push((t) => {
         const drag = t % 4.5 < 1.0 ? 1 : 0.35; // Periodic inhalation ember intensity cycle
         ember.material.color.setRGB(1 * drag, 0.4 * drag, 0);
       });
       // Micro-steam plume above cigarette ember (world-space transform)
       createSteamEmitter(
-        new THREE.Vector3(4.8 + 0.83, 0.25 + deckY + 0.04 + 1.306, -2.8 - 2.65),
+        new THREE.Vector3(4.8 + 0.9 + 0.08, 0.25 + deckY + 0.04 + 1.28, -2.8 - 2.58),
         { count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1 }
       );
     }
@@ -3768,17 +3789,30 @@
       scooter.add(deliveryBox, deliveryStripe);
       g.add(scooter);
 
-      // Alley couple embracing beneath the lantern
-      const a = createOutfitCitizen(1, { hood: false, visor: false });
-      const b = createOutfitCitizen(4, { visor: false });
-      a.scale.setScalar(1);
-      b.scale.setScalar(1);
-      a.position.set(-0.05, 0, -2.62);
-      a.rotation.y = Math.PI;
-      b.position.set(-0.05, 0, -2.98);
-      poseKiss(a, b);
-      g.add(a, b);
-      citizens.push(a, b);
+      // Alley courier taking a smoke break, leaning back against the wall beneath the chochin lantern
+      const alleySmoker = createOutfitCitizen(3, { hood: false, visor: false, headband: true });
+      alleySmoker.position.set(-0.25, 0, -2.35);
+      alleySmoker.rotation.y = 0; // Facing forward into alley (+Z), leaning back against kitchen wall
+      poseWallLean(alleySmoker);
+      g.add(alleySmoker);
+      citizens.push(alleySmoker);
+
+      const alleyEmber = new THREE.Mesh(
+        new THREE.SphereGeometry(0.014, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0xff6a00, toneMapped: false })
+      );
+      alleyEmber.position.set(0, -0.21, 0.02);
+      alleySmoker.userData.parts.armR.fore.add(alleyEmber);
+      propUpdates.push((t) => {
+        const drag = t % 4.8 < 1.1 ? 1 : 0.35;
+        alleyEmber.material.color.setRGB(1 * drag, 0.4 * drag, 0);
+      });
+
+      // Micro-steam plume rising from cigarette ember beneath the swaying lantern
+      createSteamEmitter(
+        new THREE.Vector3(-4.9 - 0.25 + 0.12, 0.25 + 1.25, -2.8 - 2.35 + 0.1),
+        { count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1 }
+      );
 
       // Shinto roadside shrine with warm votive flame
       const shrine = new THREE.Group();
@@ -3893,7 +3927,7 @@
       toRemove.forEach((l) => l.parent.remove(l));
 
       // Low-cost ground contact radiance decals for vehicle and drones
-      glowDecal(islandGroup, -3.2, 1.4, 3.0, 0x00f3ff, 0.35, 0.03);
+      glowDecal(islandGroup, -3.75, 1.35, 3.0, 0x00f3ff, 0.35, 0.03);
       droneDecals = [drone1, drone2].map((d, i) =>
         glowDecal(islandGroup, 0, 0, 2.6, i ? 0xa855f7 : 0x00f3ff, 0.4, 0.03)
       );
