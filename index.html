@@ -103,6 +103,24 @@
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+    // Visible error banner
+    window.addEventListener('error', (e) => {
+      if (document.getElementById('err-banner')) return;
+      const d = document.createElement('div');
+      d.id = 'err-banner';
+      d.textContent = 'JS error: ' + e.message;
+      Object.assign(d.style, {
+        position: 'fixed', left: '12px', bottom: '12px', zIndex: '200',
+        background: '#7f1d1d', color: '#fff', padding: '8px 12px',
+        font: '12px monospace', maxWidth: '60vw', borderRadius: '6px'
+      });
+      document.body.appendChild(d);
+    });
 
     // ========================================================
     // 1. RENDERER, SCENE, FOG & ISOMETRIC CAMERA
@@ -128,18 +146,122 @@
     renderer.toneMappingExposure = 1.25;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.info.autoReset = false;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
     container.appendChild(renderer.domElement);
 
-    // Smooth turntable camera auto-rotation
+    // ========================================================
+    // 1b. PROCEDURAL CYBERPUNK ENVMAP (PMREMGenerator)
+    // ========================================================
+    const pmremGen = new THREE.PMREMGenerator(renderer);
+    const envScene = new THREE.Scene();
+    envScene.background = new THREE.Color(0x06030e);
+
+    const envPalette = [0xff007f, 0x00f3ff, 0xffaa00, 0xa855f7, 0x38bdf8, 0xff1744];
+    for (let i = 0; i < 14; i++) {
+      const angle = (i / 14) * Math.PI * 2;
+      const radius = 25;
+      const col = envPalette[i % envPalette.length];
+      const gMat = new THREE.MeshBasicMaterial({ color: col });
+      const w = 4 + Math.random() * 5;
+      const h = 10 + Math.random() * 16;
+      const gMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, 1), gMat);
+      gMesh.position.set(Math.cos(angle) * radius, 6 + (Math.random() - 0.5) * 8, Math.sin(angle) * radius);
+      gMesh.lookAt(0, 4, 0);
+      envScene.add(gMesh);
+    }
+    const envRenderTarget = pmremGen.fromScene(envScene);
+    const proceduralEnvMap = envRenderTarget.texture;
+    pmremGen.dispose();
+
+    // ========================================================
+    // 1c. POST-PROCESSING (EffectComposer, MSAA Samples: 2, UnrealBloom & OutputPass)
+    // ========================================================
+    const composerRenderTarget = new THREE.WebGLRenderTarget(
+      window.innerWidth,
+      window.innerHeight,
+      {
+        type: THREE.HalfFloatType,
+        samples: 2 // MSAA on render target
+      }
+    );
+
+    const composer = new EffectComposer(renderer, composerRenderTarget);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    // UnrealBloomPass in half-resolution: threshold 0.4 keeps dark scene clean, pops neons
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
+      0.65, // strength
+      0.5, // radius
+      0.4  // threshold
+    );
+    composer.addPass(bloomPass);
+
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
+
+    // Performance Watchdog: skip ~60 warmup frames, measure 3s, use median FPS (cutoff < 28)
+    let useBloom = true;
+    let fpsChecked = false;
+    let warmupFrames = 0;
+    const WARMUP_COUNT = 60;
+    let fpsSamples = [];
+    let fpsMeasureStartTime = 0;
+    let lastFrameTime = performance.now();
+
+    // Toggle bloom manually with 'B'
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'b' || e.key === 'B' || e.key === 'и' || e.key === 'И') {
+        useBloom = !useBloom;
+        fpsChecked = true;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        if (useBloom) {
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+          composer.setSize(w, h);
+          bloomPass.resolution.set(Math.floor(w / 2), Math.floor(h / 2));
+        } else {
+          renderer.setPixelRatio(1);
+          renderer.setSize(w, h);
+        }
+      }
+    });
+
+    // ========================================================
+    // 1d. CINEMATIC PROCEDURAL CAMERA NAVIGATION & USER INPUT
+    // ========================================================
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.85; // Cozy cinematic rotation speed
-    controls.minDistance = 14;
+    controls.autoRotate = false; // Controlled smoothly by cinematic system
+    controls.minDistance = 12;
     controls.maxDistance = 48;
     controls.maxPolarAngle = Math.PI / 2 - 0.05;
     controls.target.set(0, 2.8, 0);
+
+    let userInteracting = false;
+    let lastUserActionTime = performance.now();
+    let autoOrbitAngle = Math.atan2(camera.position.z, camera.position.x);
+    let cinematicWeight = 1.0;
+
+    controls.addEventListener('start', () => {
+      userInteracting = true;
+      lastUserActionTime = performance.now();
+    });
+    controls.addEventListener('end', () => {
+      userInteracting = false;
+      lastUserActionTime = performance.now();
+      autoOrbitAngle = Math.atan2(camera.position.z, camera.position.x);
+    });
+
+    const onUserActivity = () => {
+      lastUserActionTime = performance.now();
+    };
+    window.addEventListener('pointerdown', onUserActivity);
+    window.addEventListener('wheel', onUserActivity, { passive: true });
 
     // Main Floating Island Master Group (levitates organically)
     const islandGroup = new THREE.Group();
@@ -306,11 +428,15 @@
       frontFace.position.z = d / 2 + 0.006;
       group.add(frontFace);
 
+      group.userData.faceMat = faceMat;
+      group.userData.frontFace = frontFace;
+
       if (doubleSided) {
         const backFace = new THREE.Mesh(faceGeo, faceMat);
         backFace.position.z = -d / 2 - 0.006;
         backFace.rotation.y = Math.PI;
         group.add(backFace);
+        group.userData.backFace = backFace;
       }
 
       // 4. Heavy Industrial Mounting Brackets
@@ -351,11 +477,13 @@
     // ========================================================
     // Important: metalness kept around 0.25 - 0.3 so surfaces don't black out without envMap!
     const MAT = {
-      // Wet Asphalt: low roughness (0.12) + moderate metalness (0.28) for juicy pointlight specular highlights
+      // Wet Asphalt: low roughness (0.12) + moderate metalness (0.28) + PMREM envMap reflections
       asphaltWet: new THREE.MeshStandardMaterial({
         color: 0x1a1f30,
         roughness: 0.12,
-        metalness: 0.28
+        metalness: 0.28,
+        envMap: proceduralEnvMap,
+        envMapIntensity: 0.5
       }),
       // Sidewalk concrete
       sidewalk: new THREE.MeshStandardMaterial({
@@ -396,13 +524,13 @@
       windowWarm: new THREE.MeshStandardMaterial({
         color: 0xffbe0b,
         emissive: 0xffa000,
-        emissiveIntensity: 2.5,
+        emissiveIntensity: 1.1,
         roughness: 0.2
       }),
       windowCyan: new THREE.MeshStandardMaterial({
         color: 0x00f3ff,
         emissive: 0x00f3ff,
-        emissiveIntensity: 2.5,
+        emissiveIntensity: 1.1,
         roughness: 0.2
       }),
       // Vibrant Neon Materials (MeshBasicMaterial for pure luminous pop)
@@ -422,7 +550,7 @@
       sakuraLeaves: new THREE.MeshStandardMaterial({
         color: 0xff69b4,
         emissive: 0xff1493,
-        emissiveIntensity: 1.1,
+        emissiveIntensity: 0.5,
         roughness: 0.35,
         transparent: true,
         opacity: 0.88
@@ -478,9 +606,9 @@
     scene.add(dirLight);
 
     // 3. Strategic Colored PointLights for vibrant specular pools on wet asphalt:
-    // Warm Golden-Orange Light from the Ramen Bar
+    // Warm Golden-Orange Light from the Ramen Bar (placed inside hollow stall interior)
     const ramenWarmLight = new THREE.PointLight(0xff9500, 4.6, 14, 1.7);
-    ramenWarmLight.position.set(-2.8, 2.2, -1.8);
+    ramenWarmLight.position.set(-4.8, 2.05, -1.1);
     islandGroup.add(ramenWarmLight);
 
     // Hot Pink Light from Pagoda & Signs
@@ -580,28 +708,83 @@
       islandGroup.add(hazLight);
     });
 
-    // Deep Stepped Voxel / Rock Underbelly (Tapering 12 units down)
-    const rockSteps = [
-      { w: 14.4, d: 14.4, h: 1.1, y: -1.6 },
-      { w: 13.0, d: 13.0, h: 1.3, y: -2.7 },
-      { w: 11.2, d: 11.2, h: 1.5, y: -4.0 },
-      { w: 9.0,  d: 9.0,  h: 1.6, y: -5.4 },
-      { w: 6.8,  d: 6.8,  h: 1.8, y: -7.0 },
-      { w: 4.4,  d: 4.4,  h: 1.8, y: -8.6 },
-      { w: 2.2,  d: 2.2,  h: 1.8, y: -10.2 },
-      { w: 0.9,  d: 0.9,  h: 1.4, y: -11.6 }
+    // Bedrock Core Slab immediately under asphalt
+    const bedrock = new THREE.Mesh(
+      new THREE.BoxGeometry(14.7, 0.8, 14.7),
+      MAT.rockDark
+    );
+    bedrock.position.y = -1.6;
+    bedrock.receiveShadow = true;
+    islandGroup.add(bedrock);
+
+    // Deep Jagged Rock Stalactites (Tapering from bedrock down to abyss y ≈ -12)
+    const stalactiteGroup = new THREE.Group();
+    stalactiteGroup.position.y = -2.0;
+
+    // 1. Massive central primary spire
+    const primarySpireGeo = new THREE.ConeGeometry(2.6, 10.4, 6);
+    primarySpireGeo.rotateX(Math.PI);
+    const primarySpire = new THREE.Mesh(primarySpireGeo, MAT.rockDark);
+    primarySpire.position.set(0.1, -5.2, -0.2);
+    primarySpire.rotation.z = 0.05;
+    primarySpire.rotation.x = -0.04;
+    primarySpire.castShadow = true;
+    primarySpire.receiveShadow = true;
+    stalactiteGroup.add(primarySpire);
+
+    // 2. Secondary stalactite pillars (Mid ring)
+    const midStalactites = [
+      { x: -2.8, z: 2.2, r: 1.8, h: 8.5, rotX: 0.12, rotZ: 0.08, mat: MAT.rockAccent },
+      { x: 3.1, z: -1.9, r: 1.7, h: 8.2, rotX: -0.08, rotZ: -0.11, mat: MAT.rockDark },
+      { x: -2.6, z: -2.8, r: 1.6, h: 7.8, rotX: -0.14, rotZ: 0.06, mat: MAT.rockDark },
+      { x: 2.7, z: 2.9, r: 1.9, h: 8.0, rotX: 0.09, rotZ: -0.12, mat: MAT.rockAccent },
+      { x: 0.2, z: 3.5, r: 1.5, h: 7.2, rotX: 0.15, rotZ: 0.02, mat: MAT.rockDark },
+      { x: -3.6, z: 0.1, r: 1.6, h: 7.5, rotX: 0.03, rotZ: 0.16, mat: MAT.rockAccent },
+      { x: 3.8, z: 0.3, r: 1.5, h: 7.0, rotX: -0.04, rotZ: -0.15, mat: MAT.rockDark },
+      { x: 0.3, z: -3.8, r: 1.6, h: 7.4, rotX: -0.16, rotZ: -0.03, mat: MAT.rockAccent }
     ];
 
-    rockSteps.forEach((step, idx) => {
-      const stepMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(step.w, step.h, step.d),
-        idx % 2 === 0 ? MAT.rockDark : MAT.rockAccent
-      );
-      stepMesh.position.y = step.y;
-      stepMesh.receiveShadow = true;
-      stepMesh.castShadow = true;
-      islandGroup.add(stepMesh);
+    midStalactites.forEach((s, idx) => {
+      const geo = new THREE.ConeGeometry(s.r, s.h, 5 + (idx % 2));
+      geo.rotateX(Math.PI);
+      const mesh = new THREE.Mesh(geo, s.mat);
+      mesh.position.set(s.x, -s.h / 2, s.z);
+      mesh.rotation.x = s.rotX;
+      mesh.rotation.z = s.rotZ;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      stalactiteGroup.add(mesh);
     });
+
+    // 3. Outer jagged teeth ring under sidewalks and road borders
+    const outerStalactites = [
+      { x: -5.6, z: 4.6, r: 1.2, h: 5.2, rotX: 0.18, rotZ: 0.18 },
+      { x: -5.8, z: -4.8, r: 1.3, h: 4.8, rotX: -0.15, rotZ: 0.15 },
+      { x: 5.6, z: 5.0, r: 1.1, h: 5.0, rotX: 0.16, rotZ: -0.16 },
+      { x: 5.8, z: -4.6, r: 1.2, h: 5.4, rotX: -0.14, rotZ: -0.14 },
+      { x: -5.9, z: 0, r: 1.3, h: 4.6, rotX: 0.02, rotZ: 0.22 },
+      { x: 5.9, z: 0, r: 1.2, h: 4.8, rotX: -0.03, rotZ: -0.20 },
+      { x: 0, z: 5.9, r: 1.3, h: 4.5, rotX: 0.21, rotZ: 0.01 },
+      { x: 0, z: -5.9, r: 1.2, h: 4.7, rotX: -0.22, rotZ: -0.02 },
+      { x: -3.8, z: 5.5, r: 1.0, h: 4.2, rotX: 0.15, rotZ: 0.12 },
+      { x: 3.8, z: 5.5, r: 1.1, h: 4.4, rotX: 0.14, rotZ: -0.10 },
+      { x: -3.8, z: -5.5, r: 1.0, h: 4.3, rotX: -0.16, rotZ: 0.11 },
+      { x: 3.8, z: -5.5, r: 1.1, h: 4.1, rotX: -0.15, rotZ: -0.12 }
+    ];
+
+    outerStalactites.forEach((s, idx) => {
+      const geo = new THREE.ConeGeometry(s.r, s.h, 5);
+      geo.rotateX(Math.PI);
+      const mesh = new THREE.Mesh(geo, idx % 2 === 0 ? MAT.rockDark : MAT.rockAccent);
+      mesh.position.set(s.x, -s.h / 2, s.z);
+      mesh.rotation.x = s.rotX;
+      mesh.rotation.z = s.rotZ;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      stalactiteGroup.add(mesh);
+    });
+
+    islandGroup.add(stalactiteGroup);
 
     // Structural Steel I-Beam Girders supporting the island
     const beamGeo = new THREE.BoxGeometry(0.25, 0.25, 12);
@@ -680,26 +863,426 @@
 
 
 
+    // ============================================================
+    // CITIZENS & RAMEN STALL SYSTEM
+    // ============================================================
+    const citizens = []; // in animate(): citizens.forEach(c => c.userData.update(time));
+
+    function limb(radius, length, mat) {
+      const pivot = new THREE.Group();
+      const geo = new THREE.CapsuleGeometry(radius, length, 4, 8);
+      geo.translate(0, -(length / 2 + radius), 0); // верх капсулы в точке сустава
+      pivot.add(new THREE.Mesh(geo, mat));
+      pivot.userData.total = length + radius * 2;
+      return pivot;
+    }
+
+    function createCitizen({
+      coat = 0x141824,
+      trim = 0x00f3ff,
+      sitting = false,
+      longCoat = false,
+      hood = true,
+      visor = true,
+      headband = false,
+      apron = false,
+      eating = false,
+      phase = Math.random() * 6
+    } = {}) {
+      const g = new THREE.Group();
+      const coatMat = new THREE.MeshStandardMaterial({ color: coat, roughness: 0.75, metalness: 0.1 });
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x07080c, roughness: 0.9 });
+      const skinMat = new THREE.MeshStandardMaterial({ color: 0x9c7a68, roughness: 0.8 });
+      const glowMat = new THREE.MeshBasicMaterial({ color: trim, toneMapped: false });
+
+      const hipY = sitting ? 0.59 : 0.76;
+
+      // Торс (слегка приплюснут по Z)
+      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.28, 4, 10), coatMat);
+      torso.scale.set(1, 1, 0.72);
+      torso.position.y = hipY + 0.28;
+      torso.castShadow = true;
+      g.add(torso);
+
+      // Неоновая полоса на спине
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.38, 0.02), glowMat);
+      stripe.position.set(0, hipY + 0.3, -0.115);
+      g.add(stripe);
+
+      if (longCoat && !sitting) {
+        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.26, 0.5, 12), coatMat);
+        skirt.scale.set(1, 1, 0.8);
+        skirt.position.y = hipY - 0.08;
+        g.add(skirt);
+      }
+
+      if (apron) {
+        const ap = new THREE.Mesh(
+          new THREE.BoxGeometry(0.26, 0.42, 0.02),
+          new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.9 })
+        );
+        ap.position.set(0, hipY + 0.2, 0.115);
+        g.add(ap);
+      }
+
+      // Голова
+      const head = new THREE.Group();
+      head.position.y = hipY + 0.7;
+      g.add(head);
+
+      if (hood) {
+        const hd = new THREE.Mesh(new THREE.SphereGeometry(0.135, 14, 10), coatMat);
+        hd.scale.set(1, 1.05, 1.05);
+        hd.position.z = -0.02;
+        head.add(hd);
+        const face = new THREE.Mesh(new THREE.SphereGeometry(0.105, 12, 8), darkMat);
+        face.position.z = 0.045;
+        head.add(face);
+      } else {
+        const hd = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 10), skinMat);
+        head.add(hd);
+        const hair = new THREE.Mesh(
+          new THREE.SphereGeometry(0.125, 14, 8, 0, Math.PI * 2, 0, Math.PI / 1.9),
+          darkMat
+        );
+        hair.position.set(0, 0.01, -0.01);
+        head.add(hair);
+        [-0.04, 0.04].forEach((ex) => {
+          const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.01), darkMat);
+          eye.position.set(ex, 0.0, 0.112);
+          head.add(eye);
+        });
+      }
+
+      if (visor) {
+        const v = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.04, 0.04), glowMat);
+        v.position.set(0, 0.01, 0.14);
+        head.add(v);
+      }
+
+      if (headband) {
+        const band = new THREE.Mesh(
+          new THREE.TorusGeometry(0.122, 0.014, 6, 16),
+          new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.8 })
+        );
+        band.rotation.x = Math.PI / 2;
+        band.position.y = 0.045;
+        head.add(band);
+      }
+
+      // Руки: плечо -> предплечье
+      const makeArm = (side) => {
+        const upper = limb(0.045, 0.2, coatMat);
+        upper.position.set(side * 0.2, hipY + 0.5, 0);
+        const fore = limb(0.04, 0.2, coatMat);
+        fore.position.y = -upper.userData.total;
+        upper.add(fore);
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), skinMat);
+        hand.position.y = -fore.userData.total;
+        fore.add(hand);
+        g.add(upper);
+        return { upper, fore };
+      };
+      const armL = makeArm(-1);
+      const armR = makeArm(1);
+
+      // Ноги
+      const makeLeg = (side) => {
+        const thigh = limb(0.065, 0.24, coatMat);
+        thigh.position.set(side * 0.085, hipY, 0);
+        const shin = limb(0.055, 0.24, darkMat);
+        shin.position.y = -thigh.userData.total;
+        thigh.add(shin);
+        const foot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.05, 0.17), darkMat);
+        foot.position.set(0, -shin.userData.total + 0.01, 0.04);
+        shin.add(foot);
+        g.add(thigh);
+        return { thigh, shin };
+      };
+      const legL = makeLeg(-1);
+      const legR = makeLeg(1);
+
+      let chopsticks = null;
+
+      if (sitting) {
+        // Сидит: бёдра вперёд, голени вниз
+        [legL, legR].forEach((l) => {
+          l.thigh.rotation.x = -Math.PI / 2;
+          l.shin.rotation.x = Math.PI / 2;
+        });
+        // Левая рука на стойке, правая с палочками к миске
+        armL.upper.rotation.x = -0.5;
+        armL.fore.rotation.x = -0.9;
+        armR.upper.rotation.x = -0.7;
+        armR.fore.rotation.x = -1.3;
+
+        if (eating) {
+          chopsticks = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.006, 0.006, 0.24, 4),
+            new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.6 })
+          );
+          chopsticks.geometry.translate(0, -0.12, 0);
+          chopsticks.position.y = -armR.fore.userData.total;
+          chopsticks.rotation.x = 1.2;
+          armR.fore.add(chopsticks);
+        }
+      } else {
+        armL.upper.rotation.z = 0.08;
+        armR.upper.rotation.z = -0.08;
+        armL.fore.rotation.x = -0.25;
+        armR.fore.rotation.x = -0.25;
+      }
+
+      // Лёгкая «жизнь»: дыхание, повороты головы, подъём палочек
+      g.userData.update = (t) => {
+        torso.scale.y = 1 + Math.sin(t * 1.6 + phase) * 0.015;
+        head.rotation.y = Math.sin(t * 0.4 + phase) * 0.15;
+        head.rotation.x = Math.sin(t * 0.55 + phase) * 0.04;
+        if (sitting && eating) {
+          const lift = Math.pow(Math.max(0, Math.sin(t * 1.2 + phase)), 2);
+          armR.fore.rotation.x = -1.3 + lift * 0.45;
+        }
+      };
+
+      g.userData.hipY = hipY;
+      g.userData.stripe = stripe;
+
+      return g;
+    }
+
+    function createEmblemTexture(glyph, color) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#0a0a0f';
+      ctx.beginPath();
+      ctx.arc(64, 64, 58, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 5;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(64, 64, 54, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.font = 'bold 76px "Yu Gothic", Meiryo, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(glyph, 64, 70);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    }
+
+    function addBackEmblem(citizen, glyph = '侍', color = '#ff1744') {
+      if (citizen.userData.stripe) citizen.userData.stripe.visible = false;
+      const hipY = citizen.userData.hipY ?? 0.76;
+      const patch = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.26, 0.26),
+        new THREE.MeshBasicMaterial({
+          map: createEmblemTexture(glyph, color),
+          transparent: true,
+          toneMapped: false
+        })
+      );
+      patch.position.set(0, hipY + 0.3, -0.113);
+      patch.rotation.y = Math.PI; // смотрит назад (-Z)
+      citizen.add(patch);
+    }
+
+    function addUmbrella(citizen, color = 0xff007f) {
+      const hipY = citizen.userData.hipY ?? 0.76;
+      const g = new THREE.Group();
+      const canopy = new THREE.Mesh(
+        new THREE.ConeGeometry(0.5, 0.2, 12, 1, true),
+        new THREE.MeshStandardMaterial({
+          color, emissive: color, emissiveIntensity: 0.35, roughness: 0.5,
+          side: THREE.DoubleSide, transparent: true, opacity: 0.9
+        })
+      );
+      canopy.position.y = 0.18;
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.6, 6), MAT.metalPipe);
+      handle.position.y = -0.1;
+      g.add(canopy, handle);
+      g.position.set(0, hipY + 0.95, -0.12);
+      g.rotation.z = 0.15;
+      citizen.add(g);
+    }
+
+    // ============================================================
+    // ПАТЧ 18 — РАЗНАЯ ОДЕЖДА И РЮКЗАКИ
+    // ============================================================
+    const OUTFITS = [
+      { coat: 0xfacc15, hood: false },                        // жёлтый дождевик (как у девушки)
+      { coat: 0x2563eb, hood: true, trim: 0xff007f },         // синий худи
+      { coat: 0xdc2626, hood: false, longCoat: true },        // красное длинное пальто
+      { coat: 0x16a34a, hood: true, trim: 0xffaa00 },         // зелёная парка
+      { coat: 0xe5e7eb, hood: false, trim: 0x00f3ff },        // светлая куртка
+      { coat: 0x7c3aed, hood: true, trim: 0x00f3ff }          // фиолетовый
+    ];
+
+    function createOutfitCitizen(i, extra = {}) {
+      const c = createCitizen({ ...OUTFITS[i % OUTFITS.length], ...extra });
+      c.scale.setScalar(0.94 + Math.random() * 0.12); // немного разный рост
+      return c;
+    }
+
+    function addBackpack(citizen, color = 0x1f2937) {
+      const hipY = citizen.userData.hipY ?? 0.76;
+      if (citizen.userData.stripe) citizen.userData.stripe.visible = false;
+      const bag = new THREE.Mesh(
+        new THREE.BoxGeometry(0.24, 0.3, 0.12),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.7 })
+      );
+      bag.position.set(0, hipY + 0.3, -0.19);
+      citizen.add(bag);
+    }
+
+    // Helper: Dark Cyber Window Grille / Mullions
+    function addWindowGrille(parent, w, h, x, y, z, rotY = 0) {
+      const gGroup = new THREE.Group();
+      gGroup.position.set(x, y, z);
+      gGroup.rotation.y = rotY;
+      const frameMat = MAT.timberDark;
+      const t = 0.04;
+      const d = 0.025;
+      const top = new THREE.Mesh(new THREE.BoxGeometry(w, t, d), frameMat);
+      top.position.y = h / 2;
+      const bot = new THREE.Mesh(new THREE.BoxGeometry(w, t, d), frameMat);
+      bot.position.y = -h / 2;
+      const left = new THREE.Mesh(new THREE.BoxGeometry(t, h, d), frameMat);
+      left.position.x = -w / 2;
+      const right = new THREE.Mesh(new THREE.BoxGeometry(t, h, d), frameMat);
+      right.position.x = w / 2;
+      gGroup.add(top, bot, left, right);
+      for (let i = 1; i <= 3; i++) {
+        const sx = -w / 2 + (w / 4) * i;
+        const vSlat = new THREE.Mesh(new THREE.BoxGeometry(0.025, h, d), frameMat);
+        vSlat.position.x = sx;
+        gGroup.add(vSlat);
+      }
+      const hSlat = new THREE.Mesh(new THREE.BoxGeometry(w, 0.025, d), frameMat);
+      gGroup.add(hSlat);
+      parent.add(gGroup);
+    }
+
+    function buildRamenStall(pg) {
+      const wall = MAT.timberDark;
+      const inner = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 0.8 });
+      const wood = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.55 });
+      const B = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+      const add = (geo, mat, x, y, z, cast = false) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.castShadow = cast;
+        m.receiveShadow = true;
+        pg.add(m);
+        return m;
+      };
+
+      // Корпус: задняя масса + полая передняя часть (глубина z от 0.4 до 2.2)
+      add(B(4.4, 2.5, 2.6), wall, 0, 1.25, -0.9, true);
+      add(B(0.2, 2.5, 1.8), wall, -2.1, 1.25, 1.3, true);
+      add(B(0.2, 2.5, 1.8), wall, 2.1, 1.25, 1.3, true);
+      add(B(4.4, 0.25, 1.8), wall, 0, 2.375, 1.3, true);   // потолок
+      add(B(4.0, 0.06, 1.8), wood, 0, 0.03, 1.3);          // пол
+
+      // Передняя стена с проёмом 2.8 x 1.18 (y от 0.62 до 1.8)
+      add(B(2.8, 0.62, 0.2), wall, 0, 0.31, 2.1, true);    // основание стойки
+      add(B(0.8, 2.5, 0.2), wall, -1.8, 1.25, 2.1, true);
+      add(B(0.8, 2.5, 0.2), wall, 1.8, 1.25, 2.1, true);
+      add(B(2.8, 0.7, 0.2), wall, 0, 2.15, 2.1, true);     // перемычка
+
+      // Тёплая внутренняя обшивка задней стены
+      add(B(3.9, 2.0, 0.04), inner, 0, 1.2, 0.42);
+
+      // Неоновое меню на стене
+      add(B(2.4, 0.16, 0.03), MAT.neonAmber, 0, 1.68, 0.46);
+      [-0.9, 0, 0.9].forEach((x, i) => {
+        add(B(0.5, 0.06, 0.03), [MAT.neonPink, MAT.neonCyan, MAT.neonAmber][i], x, 1.45, 0.46);
+      });
+
+      // Полки с бутылками и банками
+      const bottleMats = [0x22c55e, 0xf97316, 0x38bdf8, 0xe11d48].map(
+        (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.5, roughness: 0.3 })
+      );
+      [0.95, 1.3].forEach((yS, row) => {
+        add(B(2.6, 0.05, 0.28), wood, 0, yS, 0.58);
+        const count = row === 1 ? 7 : 10;
+        for (let i = 0; i < count; i++) {
+          const h = 0.14 + Math.random() * 0.1;
+          const x = -1.15 + i * 0.255;
+          add(
+            new THREE.CylinderGeometry(0.045, 0.05, h, 8),
+            bottleMats[(i + row) % bottleMats.length],
+            x, yS + 0.025 + h / 2, 0.58
+          );
+        }
+      });
+
+      // Маленький ЭЛТ-телевизор на верхней полке
+      add(B(0.55, 0.4, 0.3), MAT.metalPipe, 0.95, 1.55, 0.58);
+      add(B(0.45, 0.3, 0.02), MAT.neonCyan, 0.95, 1.55, 0.74);
+
+      // Плита и кастрюля с бульоном
+      add(B(0.9, 0.62, 0.6), MAT.metalPipe, -1.0, 0.37, 1.0, true);
+      add(new THREE.CylinderGeometry(0.26, 0.24, 0.38, 12), MAT.metalPipe, -1.0, 0.82, 1.0, true);
+      add(new THREE.CylinderGeometry(0.23, 0.23, 0.02, 12), MAT.neonAmber, -1.0, 1.0, 1.0);
+      pg.userData.potSteamPos = new THREE.Vector3(-1.0, 1.05, 1.0);
+
+      // Лампочки на проводах
+      const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffd166, toneMapped: false });
+      [[-0.9, 1.5], [0, 1.7], [0.9, 1.5]].forEach(([x, z]) => {
+        add(new THREE.SphereGeometry(0.06, 8, 8), bulbMat, x, 2.0, z);
+        add(new THREE.CylinderGeometry(0.008, 0.008, 0.3, 4), MAT.metalPipe, x, 2.2, z);
+      });
+
+      // Повар за стойкой: стоит лицом к клиентам (+Z)
+      const cook = createCitizen({
+        coat: 0x1f2937, trim: 0xffaa00, hood: false, visor: false, headband: true, apron: true
+      });
+      cook.position.set(0.2, 0.06, 1.45);
+      pg.add(cook);
+      citizens.push(cook);
+
+      // Клиент на табурете: лицом к лавке (-Z)
+      const customer = createCitizen({
+        coat: 0x111827, trim: 0x00f3ff, sitting: true, eating: true
+      });
+      customer.position.set(0.85, 0, 2.75);
+      customer.rotation.y = Math.PI;
+      addBackEmblem(customer, '侍', '#ff1744');
+      pg.add(customer);
+      citizens.push(customer);
+
+      // Прохожая у зебры: жёлтый дождевик, без капюшона, с зонтом
+      const walker = createCitizen({
+        coat: 0xfacc15, trim: 0xff007f, longCoat: true, hood: false, visor: true
+      });
+      walker.position.set(1.65, 0, 6.2); // На тротуаре рядом с зеброй и байком Yaiba
+      walker.rotation.y = Math.PI * 0.75;
+      addUmbrella(walker, 0xff007f);
+      pg.add(walker);
+      citizens.push(walker);
+    }
+
     // ========================================================
     // 5. CYBER RAMEN PAGODA (Tiered Curved Roofs & Details)
     // ========================================================
     const pagodaGroup = new THREE.Group();
     pagodaGroup.position.set(-4.8, 0.25, -2.5);
 
-    // --- LEVEL 1: RAMEN SHOP STALL ---
-    const stallBase = new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.5, 4.4), MAT.timberDark);
-    stallBase.position.y = 1.25;
-    stallBase.castShadow = true;
-    stallBase.receiveShadow = true;
-    pagodaGroup.add(stallBase);
+    // --- LEVEL 1: HOLLOW RAMEN SHOP STALL WITH INTERIOR & COOK ---
+    buildRamenStall(pagodaGroup);
 
-    // Wooden bar counter opening
-    const counterOpening = new THREE.Mesh(
-      new THREE.BoxGeometry(2.8, 1.3, 0.5),
-      new THREE.MeshStandardMaterial({ color: 0x06080e, roughness: 0.85 })
-    );
-    counterOpening.position.set(0, 1.15, 2.1);
-    pagodaGroup.add(counterOpening);
+    // Additional citizen on the hotel sidewalk (гость отеля с рюкзаком)
+    const hotelGuest = createOutfitCitizen(1);
+    addBackpack(hotelGuest, 0xff007f);
+    hotelGuest.position.set(4.2, 0.25, 0.6);
+    hotelGuest.rotation.y = -0.55;
+    islandGroup.add(hotelGuest);
+    citizens.push(hotelGuest);
 
     // Wooden ramen serving counter shelf
     const barShelf = new THREE.Mesh(
@@ -720,6 +1303,49 @@
       soup.position.set(bx, 0.8, 2.3);
       pagodaGroup.add(soup);
     });
+
+    // Delicate Rising Warm Steam Puffs above Ramen Bowls & Broth Pot
+    const steamParticleCount = 24;
+    const steamGeo = new THREE.BufferGeometry();
+    const steamPositions = new Float32Array(steamParticleCount * 3);
+    const steamData = [];
+
+    for (let i = 0; i < steamParticleCount; i++) {
+      let srcX = -0.6, srcY = 0.82, srcZ = 2.3;
+      if (i < 8) {
+        srcX = -0.6; srcY = 0.82; srcZ = 2.3;
+      } else if (i < 16) {
+        srcX = 0.6; srcY = 0.82; srcZ = 2.3;
+      } else {
+        // Over broth pot inside stall
+        srcX = -1.0; srcY = 1.05; srcZ = 1.0;
+      }
+      const x = srcX + (Math.random() - 0.5) * 0.12;
+      const y = srcY + Math.random() * 0.6;
+      const z = srcZ + (Math.random() - 0.5) * 0.10;
+      steamPositions[i * 3] = x;
+      steamPositions[i * 3 + 1] = y;
+      steamPositions[i * 3 + 2] = z;
+      steamData.push({
+        srcX,
+        srcZ,
+        speed: 0.45 + Math.random() * 0.35,
+        driftPhase: Math.random() * Math.PI * 2,
+        yStart: srcY,
+        yMax: srcY + 0.8 + Math.random() * 0.3
+      });
+    }
+    steamGeo.setAttribute('position', new THREE.BufferAttribute(steamPositions, 3));
+    const steamMat = new THREE.PointsMaterial({
+      color: 0xffedd5,
+      size: 0.16,
+      transparent: true,
+      opacity: 0.38,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const steamMesh = new THREE.Points(steamGeo, steamMat);
+    pagodaGroup.add(steamMesh);
 
     // Red noren fabric curtain strips
     for (let i = -1.1; i <= 1.1; i += 0.45) {
@@ -743,13 +1369,13 @@
     const lanternChain = new THREE.Group();
     lanternChain.position.set(0, 2.15, 2.36);
 
-    const wire = new THREE.Mesh(
+    const lanternWire = new THREE.Mesh(
       new THREE.CylinderGeometry(0.015, 0.015, 2.4, 6),
       MAT.metalPipe
     );
-    wire.rotation.z = Math.PI / 2;
-    wire.position.y = 0.28;
-    lanternChain.add(wire);
+    lanternWire.rotation.z = Math.PI / 2;
+    lanternWire.position.y = 0.28;
+    lanternChain.add(lanternWire);
 
     const paperLanterns = [];
     const lanternMat = new THREE.MeshStandardMaterial({
@@ -828,16 +1454,48 @@
     const winFront = new THREE.Mesh(winGeo, MAT.windowWarm);
     winFront.position.set(0, 3.95, 1.65);
     pagodaGroup.add(winFront);
+    addWindowGrille(pagodaGroup, 1.6, 0.75, 0, 3.95, 1.70);
 
     const winSide = new THREE.Mesh(winGeo, MAT.windowCyan);
     winSide.position.set(1.65, 3.95, 0);
     winSide.rotation.y = Math.PI / 2;
     pagodaGroup.add(winSide);
+    addWindowGrille(pagodaGroup, 1.6, 0.75, 1.70, 3.95, 0, Math.PI / 2);
 
-    // Exterior Air Conditioner unit with spinning fan
-    const acUnit = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.52, 0.4), MAT.metalPipe);
-    acUnit.position.set(1.85, 3.4, 0.8);
-    pagodaGroup.add(acUnit);
+    // Exterior Air Conditioner unit with actively spinning fan rotor
+    const acGroup = new THREE.Group();
+    acGroup.position.set(1.85, 3.4, 0.8);
+
+    const acHousing = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.52, 0.4), MAT.metalPipe);
+    acHousing.castShadow = true;
+    acGroup.add(acHousing);
+
+    // Circular vent bezel on side
+    const acVentRim = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.18, 16), MAT.metalRust);
+    acVentRim.rotation.y = Math.PI / 2;
+    acVentRim.position.set(0.38, 0, 0);
+    acGroup.add(acVentRim);
+
+    // Real rotating 4-blade propeller fan
+    const acFan = new THREE.Group();
+    acFan.position.set(0.36, 0, 0);
+    acFan.rotation.y = Math.PI / 2;
+
+    const fanCenter = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 8), MAT.timberDark);
+    fanCenter.rotation.x = Math.PI / 2;
+    acFan.add(fanCenter);
+
+    for (let f = 0; f < 4; f++) {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.13, 0.01), MAT.timberDark);
+      blade.position.y = 0.065;
+      blade.rotation.z = 0.35;
+      const bladePivot = new THREE.Group();
+      bladePivot.rotation.z = (f / 4) * Math.PI * 2;
+      bladePivot.add(blade);
+      acFan.add(bladePivot);
+    }
+    acGroup.add(acFan);
+    pagodaGroup.add(acGroup);
 
     // --- PAGODA ROOF TIER 2 ---
     const roof2Geo = new THREE.ConeGeometry(2.9, 0.9, 4);
@@ -959,6 +1617,9 @@
         const podWin = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.6, 0.06), MAT.windowCyan);
         podWin.position.set(xP, yF, 1.84);
         hotelGroup.add(podWin);
+
+        // Dark grille / cyber mullions over pod window
+        addWindowGrille(hotelGroup, 0.95, 0.6, xP, yF, 1.88);
       });
     }
 
@@ -1104,6 +1765,41 @@
     });
 
     islandGroup.add(sakuraGroup);
+
+    // Falling Sakura Petals (~60 particles with slow drifting wind)
+    const petalCount = 60;
+    const petalGeo = new THREE.BufferGeometry();
+    const petalPositions = new Float32Array(petalCount * 3);
+    const petalData = [];
+
+    for (let i = 0; i < petalCount; i++) {
+      const px = 4.6 + (Math.random() - 0.5) * 4.4;
+      const py = 0.2 + Math.random() * 5.0;
+      const pz = 2.8 + (Math.random() - 0.5) * 4.4;
+      petalPositions[i * 3] = px;
+      petalPositions[i * 3 + 1] = py;
+      petalPositions[i * 3 + 2] = pz;
+      petalData.push({
+        baseX: px,
+        baseZ: pz,
+        yStart: 4.8 + Math.random() * 1.5,
+        fallSpeed: 0.35 + Math.random() * 0.3,
+        swaySpeed: 1.2 + Math.random() * 0.8,
+        swayRadius: 0.3 + Math.random() * 0.3,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+    petalGeo.setAttribute('position', new THREE.BufferAttribute(petalPositions, 3));
+    const petalMat = new THREE.PointsMaterial({
+      color: 0xff69b4,
+      size: 0.14,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const petalPoints = new THREE.Points(petalGeo, petalMat);
+    islandGroup.add(petalPoints);
 
     // Fire Hydrant (Clean & Sharp)
     const hydrant = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.68, 8), MAT.cyberRed);
@@ -1466,6 +2162,8 @@
     const drone1 = createCleanPatrolDrone(0x00f3ff);
     const drone2 = createCleanPatrolDrone(0xa855f7);
 
+
+
     // ========================================================
     // 11. DELICATE SHORT FAST RAIN STREAKS & RIPPLES
     // ========================================================
@@ -1527,24 +2225,43 @@
       });
     }
 
-    // ========================================================
-    // 12. DISTANT DRIFTING VOID CLOUDS
-    // ========================================================
-    const cloudsGroup = new THREE.Group();
-    const cloudMat = new THREE.MeshStandardMaterial({
-      color: 0x140c28,
-      roughness: 0.95,
-      metalness: 0.05
-    });
+    // ============================================================
+    // 12. DISTANT DRIFTING VOID FOG BANDS (Low-cost Sprites)
+    // ============================================================
+    function createFogBankTexture() {
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+      grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+      grad.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 256, 256);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
 
-    for (let c = 0; c < 7; c++) {
-      const cg = new THREE.DodecahedronGeometry(3.5 + Math.random() * 3.0, 0);
-      const cm = new THREE.Mesh(cg, cloudMat);
-      const angle = (c / 7) * Math.PI * 2;
-      const radius = 24 + Math.random() * 8;
-      cm.position.set(Math.cos(angle) * radius, -9 - Math.random() * 5, Math.sin(angle) * radius);
-      cm.scale.set(1.9, 0.4, 1.4);
-      cloudsGroup.add(cm);
+    const cloudsGroup = new THREE.Group();
+    const fogTex = createFogBankTexture();
+    const fogTints = [0x4c1d95, 0x831843, 0x155e75, 0x3730a3];
+    for (let i = 0; i < 8; i++) {
+      const mat = new THREE.SpriteMaterial({
+        map: fogTex,
+        color: fogTints[i % fogTints.length],
+        transparent: true,
+        opacity: 0.16,
+        depthWrite: false,
+        fog: false
+      });
+      const s = new THREE.Sprite(mat);
+      const a = (i / 8) * Math.PI * 2 + Math.random() * 0.5;
+      const r = 20 + Math.random() * 10;
+      s.position.set(Math.cos(a) * r, -6 + Math.random() * 14, Math.sin(a) * r);
+      const size = 14 + Math.random() * 10;
+      s.scale.set(size * 1.8, size * 0.6, 1);
+      cloudsGroup.add(s);
     }
     scene.add(cloudsGroup);
 
@@ -1688,27 +2405,925 @@
     speeder2.position.set(12, 8.8, -18.5);
     scene.add(speeder2);
 
-    // Hide loader smoothly once scene is ready
-    setTimeout(() => {
-      const loader = document.getElementById('loader');
-      if (loader) loader.classList.add('hidden');
-    }, 400);
+    // ============================================================
+    // ПАТЧ 9 — ЗВУК: ГРОМ + МОЛНИЯ, ГУЛ ДРОНОВ, ТРЕСК НЕОНА, ШИПЕНИЕ, СВИСТ СПИДЕРОВ
+    // ============================================================
+    let audioExtras = null;
+    let audioCtx = null;
+    let masterGain = null;
+    let audioOn = false;
+    let nextThunderAt = 14;
+    let lightningFlash = 0;
+    const HEMI_BASE = hemiLight.intensity;
+    const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const _camDir = new THREE.Vector3();
+
+    function makeNoiseBuffer(ctx, seconds) {
+      const len = Math.floor(ctx.sampleRate * seconds);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      return buf;
+    }
+
+    function setPannerPos(p, x, y, z) {
+      if (p.positionX) {
+        p.positionX.value = x;
+        p.positionY.value = y;
+        p.positionZ.value = z;
+      } else {
+        p.setPosition(x, y, z);
+      }
+    }
+
+    function makePanner(ctx, x, y, z, refDistance) {
+      const p = ctx.createPanner();
+      p.panningModel = 'equalpower';
+      p.distanceModel = 'inverse';
+      p.refDistance = refDistance;
+      p.rolloffFactor = 1.1;
+      setPannerPos(p, x, y, z);
+      return p;
+    }
+
+    function buildAudioExtras() {
+      const ctx = audioCtx;
+      const noise = makeNoiseBuffer(ctx, 3);
+      audioExtras = { noise, drones: [], speeders: [] };
+
+      // Гул дронов: тихая пила через фильтр, источник едет вместе с дроном
+      [drone1, drone2].forEach((d, i) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = 92 + i * 14;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 380;
+        const g = ctx.createGain();
+        g.gain.value = 0.06;
+        const p = makePanner(ctx, 0, 3, 0, 3);
+        osc.connect(lp);
+        lp.connect(g);
+        g.connect(p);
+        p.connect(masterGain);
+        osc.start();
+        audioExtras.drones.push({ obj: d, panner: p });
+      });
+
+      // Свист спидеров: полосовой шум, громкость растёт, когда спидер пролетает мимо острова
+      [speeder1, speeder2].forEach((s, i) => {
+        const src = ctx.createBufferSource();
+        src.buffer = noise;
+        src.loop = true;
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 700 + i * 300;
+        bp.Q.value = 0.7;
+        const g = ctx.createGain();
+        g.gain.value = 0;
+        const p = makePanner(ctx, 0, 0, 0, 8);
+        src.connect(bp);
+        bp.connect(g);
+        g.connect(p);
+        p.connect(masterGain);
+        src.start();
+        audioExtras.speeders.push({ obj: s, gain: g, panner: p });
+      });
+
+      // Электрический гул вывесок («ラーメン» и «荒坂»), слегка «дышит»
+      const hum = ctx.createOscillator();
+      hum.type = 'sawtooth';
+      hum.frequency.value = 100;
+      const humLp = ctx.createBiquadFilter();
+      humLp.type = 'lowpass';
+      humLp.frequency.value = 280;
+      const humGain = ctx.createGain();
+      humGain.gain.value = 0.012;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 6.3;
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = 0.006;
+      lfo.connect(lfoGain);
+      lfoGain.connect(humGain.gain);
+      hum.connect(humLp);
+      humLp.connect(humGain);
+      [[-4.8, 2.8, -0.2], [4.8, 6.4, -1.4]].forEach(([x, y, z]) => {
+        const p = makePanner(ctx, x, y, z, 3);
+        humGain.connect(p);
+        p.connect(masterGain);
+      });
+      hum.start();
+      lfo.start();
+
+      // Шипение у лапшичной: высокочастотный шум с пульсацией
+      const sz = ctx.createBufferSource();
+      sz.buffer = noise;
+      sz.loop = true;
+      const szBp = ctx.createBiquadFilter();
+      szBp.type = 'bandpass';
+      szBp.frequency.value = 5200;
+      szBp.Q.value = 0.8;
+      const szGain = ctx.createGain();
+      szGain.gain.value = 0.02;
+      const szLfo = ctx.createOscillator();
+      szLfo.frequency.value = 3.1;
+      const szLfoGain = ctx.createGain();
+      szLfoGain.gain.value = 0.012;
+      szLfo.connect(szLfoGain);
+      szLfoGain.connect(szGain.gain);
+      const szPan = makePanner(ctx, -4.8, 1.2, -0.6, 2.5);
+      sz.connect(szBp);
+      szBp.connect(szGain);
+      szGain.connect(szPan);
+      szPan.connect(masterGain);
+      sz.start();
+      szLfo.start();
+    }
+
+    function playThunder() {
+      if (!audioCtx || !audioOn || !audioExtras) return;
+      const ctx = audioCtx;
+      const now = ctx.currentTime;
+      const src = ctx.createBufferSource();
+      src.buffer = audioExtras.noise;
+      src.loop = true;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(900, now);
+      lp.frequency.exponentialRampToValueAtTime(70, now + 3.2);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.55, now + 0.08);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 4.0);
+      src.connect(lp);
+      lp.connect(g);
+      g.connect(masterGain);
+      src.start(now, Math.random() * 1.5, 4.2);
+    }
+
+    function updateLightning(time, delta) {
+      if (time > nextThunderAt) {
+        nextThunderAt = time + 18 + Math.random() * 25;
+        if (!REDUCED_MOTION) lightningFlash = 1;
+        setTimeout(playThunder, 400 + Math.random() * 1500); // звук отстаёт от вспышки
+      }
+      lightningFlash = Math.max(0, lightningFlash - delta * 2.2);
+      // Одна плавно затухающая вспышка (без быстрого мигания)
+      hemiLight.intensity = HEMI_BASE + lightningFlash * lightningFlash * 1.8;
+    }
+
+    function updateAudio3D(cam) {
+      if (!audioCtx || !audioExtras) return;
+      const L = audioCtx.listener;
+      const p = cam.position;
+      cam.getWorldDirection(_camDir);
+      if (L.positionX) {
+        L.positionX.value = p.x;
+        L.positionY.value = p.y;
+        L.positionZ.value = p.z;
+        L.forwardX.value = _camDir.x;
+        L.forwardY.value = _camDir.y;
+        L.forwardZ.value = _camDir.z;
+        L.upX.value = 0;
+        L.upY.value = 1;
+        L.upZ.value = 0;
+      } else {
+        L.setPosition(p.x, p.y, p.z);
+        L.setOrientation(_camDir.x, _camDir.y, _camDir.z, 0, 1, 0);
+      }
+      audioExtras.drones.forEach(({ obj, panner }) => {
+        setPannerPos(panner, obj.position.x, obj.position.y, obj.position.z);
+      });
+      audioExtras.speeders.forEach(({ obj, gain, panner }) => {
+        setPannerPos(panner, obj.position.x, obj.position.y, obj.position.z);
+        const level = 0.55 * Math.exp(-Math.pow(obj.position.x / 9, 2));
+        gain.gain.setTargetAtTime(level, audioCtx.currentTime, 0.1);
+      });
+    }
+
+    // ============================================================
+    // ПАТЧ 10 — ОБЩИЕ ПОМОЩНИКИ (пар, световые пятна, обновления реквизита)
+    // ============================================================
+    const propUpdates = [];
+    const steamEmitters = [];
+
+    let _glowTex = null;
+    function getGlowTex() {
+      if (!_glowTex) _glowTex = createFogBankTexture();
+      return _glowTex;
+    }
+
+    // Мягкое световое пятно на земле вместо лишней PointLight (дёшево для слабой видеокарты)
+    function glowDecal(parent, x, z, size, colorHex, opacity, y = 0.012) {
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(size, size),
+        new THREE.MeshBasicMaterial({
+          map: getGlowTex(),
+          color: colorHex,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false
+        })
+      );
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(x, y, z);
+      parent.add(m);
+      return m;
+    }
+
+    // Пар/дым: частицы затухают к чёрному (аддитивное смешивание), поэтому bloom их не «пережигает»
+    function createSteamEmitter(pos, { count = 26, height = 2.4, spread = 0.22, size = 0.9, color = 0x9fb4ff } = {}) {
+      const geo = new THREE.BufferGeometry();
+      const posArr = new Float32Array(count * 3);
+      const colArr = new Float32Array(count * 3);
+      const data = [];
+      for (let i = 0; i < count; i++) {
+        data.push({
+          age: Math.random(),
+          speed: 0.2 + Math.random() * 0.2,
+          ox: (Math.random() - 0.5) * spread,
+          oz: (Math.random() - 0.5) * spread,
+          ph: Math.random() * 6
+        });
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+      const mat = new THREE.PointsMaterial({
+        map: getGlowTex(),
+        size,
+        vertexColors: true,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const points = new THREE.Points(geo, mat);
+      points.position.copy(pos);
+      points.frustumCulled = false;
+      islandGroup.add(points);
+
+      const base = new THREE.Color(color).multiplyScalar(0.3);
+      const emitter = {
+        update(dt) {
+          for (let i = 0; i < count; i++) {
+            const d = data[i];
+            d.age += dt * d.speed;
+            if (d.age > 1) d.age -= 1;
+            const a = d.age;
+            posArr[i * 3] = d.ox + Math.sin(a * 3 + d.ph) * spread * a * 4;
+            posArr[i * 3 + 1] = a * height;
+            posArr[i * 3 + 2] = d.oz;
+            const fade = Math.sin(Math.PI * a); // нарастает и гаснет
+            colArr[i * 3] = base.r * fade;
+            colArr[i * 3 + 1] = base.g * fade;
+            colArr[i * 3 + 2] = base.b * fade;
+          }
+          geo.attributes.position.needsUpdate = true;
+          geo.attributes.color.needsUpdate = true;
+        }
+      };
+      steamEmitters.push(emitter);
+      return emitter;
+    }
+
+    // ============================================================
+    // ПАТЧ 11 — ЗАДВОРКИ: ЧЁРНЫЙ ХОД, МИГАЮЩАЯ ЛАМПА, КОНТЕЙНЕР, МУСОР, КОТ, ПРОВОДА
+    // ============================================================
+    function createCat() {
+      const g = new THREE.Group();
+      const fur = new THREE.MeshStandardMaterial({ color: 0x111116, roughness: 0.9 });
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x7dff6b, toneMapped: false });
+
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), fur);
+      body.scale.set(1, 1.25, 1);
+      body.position.y = 0.16;
+      g.add(body);
+
+      const head = new THREE.Group();
+      head.position.y = 0.34;
+      head.add(new THREE.Mesh(new THREE.SphereGeometry(0.085, 10, 8), fur));
+      [-0.05, 0.05].forEach((x) => {
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.07, 4), fur);
+        ear.position.set(x, 0.085, 0);
+        head.add(ear);
+      });
+      const eyes = [-0.035, 0.035].map((x) => {
+        const e = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.02, 0.01), eyeMat);
+        e.position.set(x, 0.01, 0.08);
+        head.add(e);
+        return e;
+      });
+      g.add(head);
+
+      const tail = new THREE.Group();
+      tail.position.set(0, 0.06, -0.1);
+      const tailMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.22, 4, 6), fur);
+      tailMesh.rotation.x = Math.PI / 2;
+      tailMesh.position.z = -0.12;
+      tail.add(tailMesh);
+      g.add(tail);
+
+      g.userData.update = (t) => {
+        tail.rotation.y = Math.sin(t * 1.4) * 0.5;
+        head.rotation.y = Math.sin(t * 0.35) * 0.5;
+        const blink = t % 5 < 0.12 ? 0.1 : 1;
+        eyes.forEach((e) => (e.scale.y = blink));
+      };
+      return g;
+    }
+
+    function wire(a, b, sag = 0.5, r = 0.018) {
+      const pts = [];
+      for (let i = 0; i <= 6; i++) {
+        const t = i / 6;
+        const p = new THREE.Vector3().lerpVectors(a, b, t);
+        p.y -= Math.sin(Math.PI * t) * sag;
+        pts.push(p);
+      }
+      const mesh = new THREE.Mesh(
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, r, 5, false),
+        new THREE.MeshStandardMaterial({ color: 0x0b0c12, roughness: 0.6, metalness: 0.3 })
+      );
+      islandGroup.add(mesh);
+    }
+
+    function buildBackAlley() {
+      const g = hotelGroup;
+      const add = (geo, mat, x, y, z, parent = g) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        parent.add(m);
+        return m;
+      };
+
+      // Чёрный ход: дверь, рамка, ручка, табличка выхода, козырёк
+      add(new THREE.BoxGeometry(1.1, 2.0, 0.04), MAT.metalPipe, 0.7, 1.0, -1.82);
+      add(
+        new THREE.BoxGeometry(0.95, 1.9, 0.08),
+        new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.5, metalness: 0.6 }),
+        0.7, 0.95, -1.84
+      );
+      add(new THREE.BoxGeometry(0.06, 0.2, 0.06), MAT.metalPipe, 1.1, 0.95, -1.92);
+      add(
+        new THREE.BoxGeometry(0.5, 0.14, 0.04),
+        new THREE.MeshBasicMaterial({ color: 0x22ff88, toneMapped: false }),
+        0.7, 2.28, -1.84
+      );
+      const awning = add(new THREE.BoxGeometry(1.3, 0.05, 0.5), MAT.roofTile, 0.7, 2.1, -2.05);
+      awning.rotation.x = -0.2;
+
+      // Мигающая настенная лампа и световое пятно на тротуаре
+      add(new THREE.BoxGeometry(0.18, 0.12, 0.2), MAT.metalPipe, 1.55, 1.95, -1.9);
+      const lensMat = new THREE.MeshBasicMaterial({ color: 0xffb703, toneMapped: false });
+      add(new THREE.BoxGeometry(0.12, 0.05, 0.14), lensMat, 1.55, 1.87, -1.92);
+      const decal = glowDecal(g, 1.0, -2.9, 3.4, 0xffa63d, 0.5);
+      const lensOn = new THREE.Color(0xffb703);
+      const lensOff = new THREE.Color(0x3a2a10);
+      propUpdates.push((t) => {
+        const dropout = Math.sin(t * 2.3) * Math.sin(t * 6.1) > 0.8;
+        const f = dropout ? 0.15 : 0.85 + 0.15 * Math.sin(t * 17);
+        lensMat.color.copy(lensOff).lerp(lensOn, f);
+        decal.material.opacity = 0.5 * f;
+      });
+
+      // Труба вдоль стены с небольшой утечкой пара
+      add(new THREE.CylinderGeometry(0.06, 0.06, 4.2, 8), MAT.metalPipe, -1.2, 2.1, -1.92);
+      createSteamEmitter(
+        new THREE.Vector3(4.8 - 1.2, 0.25 + 1.4, -2.8 - 2.05),
+        { count: 16, height: 1.2, spread: 0.12, size: 0.5, color: 0xcbd5e1 }
+      );
+
+      // Контейнер для мусора
+      const dumpster = new THREE.Group();
+      dumpster.position.set(-0.9, 0, -2.8);
+      dumpster.rotation.y = 0.2;
+      const dumpMat = new THREE.MeshStandardMaterial({ color: 0x0f5132, roughness: 0.6, metalness: 0.3 });
+      add(new THREE.BoxGeometry(1.5, 0.9, 0.8), dumpMat, 0, 0.45, 0, dumpster);
+      add(
+        new THREE.BoxGeometry(1.56, 0.06, 0.86),
+        new THREE.MeshStandardMaterial({ color: 0x0b3b25, roughness: 0.6, metalness: 0.3 }),
+        0, 0.93, 0, dumpster
+      );
+      [-0.5, 0, 0.5].forEach((x) => add(new THREE.BoxGeometry(0.05, 0.8, 0.03), MAT.metalPipe, x, 0.45, 0.41, dumpster));
+      g.add(dumpster);
+
+      // Кот на крышке контейнера (смотрит в сторону улицы)
+      const cat = createCat();
+      cat.position.set(-0.5, 0.96, -2.7);
+      cat.rotation.y = 0.5;
+      g.add(cat);
+      propUpdates.push(cat.userData.update);
+
+      // Мешки с мусором (глянцевый мокрый пластик)
+      const bagMat = new THREE.MeshStandardMaterial({ color: 0x0b0b12, roughness: 0.22, metalness: 0.05 });
+      [[0.5, -3.0, 0.26], [0.95, -2.7, 0.24], [0.3, -3.35, 0.22], [1.4, -3.1, 0.25]].forEach(([x, z, r]) => {
+        const bag = add(new THREE.SphereGeometry(r, 12, 10), bagMat, x, r * 0.8, z);
+        bag.scale.y = 0.8;
+        bag.rotation.y = Math.random() * 6;
+        add(new THREE.ConeGeometry(0.05, 0.1, 6), bagMat, x, r * 1.55, z);
+      });
+
+      // Ящики и разбросанные банки
+      const crateMat = new THREE.MeshStandardMaterial({ color: 0x5b3a1e, roughness: 0.7 });
+      add(new THREE.BoxGeometry(0.55, 0.45, 0.55), crateMat, 2.1, 0.225, -2.5);
+      add(new THREE.BoxGeometry(0.45, 0.4, 0.45), crateMat, 2.05, 0.65, -2.5).rotation.y = 0.4;
+      const canColors = [0xef4444, 0x38bdf8, 0xfacc15, 0x22c55e];
+      for (let i = 0; i < 7; i++) {
+        const can = add(
+          new THREE.CylinderGeometry(0.04, 0.04, 0.11, 8),
+          new THREE.MeshStandardMaterial({ color: canColors[i % 4], roughness: 0.35, metalness: 0.5 }),
+          -1.6 + Math.random() * 3.6, 0.05, -2.4 - Math.random() * 1.4
+        );
+        can.rotation.z = Math.PI / 2 * (Math.random() > 0.5 ? 1 : 0);
+        can.rotation.y = Math.random() * 6;
+      }
+
+      // Столб с проводами за отелем (координаты острова)
+      const poleX = 3.4;
+      const poleZ = -6.4;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 5.6, 8), MAT.timberDark);
+      pole.position.set(poleX, 0.25 + 2.8, poleZ);
+      pole.castShadow = true;
+      islandGroup.add(pole);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 0.08), MAT.metalPipe);
+      arm.position.set(poleX, 5.6, poleZ);
+      islandGroup.add(arm);
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.55, 10), MAT.metalPipe);
+      tank.position.set(poleX + 0.3, 4.8, poleZ);
+      islandGroup.add(tank);
+
+      wire(new THREE.Vector3(poleX - 0.7, 5.6, poleZ), new THREE.Vector3(3.4, 5.0, -4.65), 0.35);
+      wire(new THREE.Vector3(poleX + 0.7, 5.6, poleZ), new THREE.Vector3(6.2, 5.0, -4.65), 0.45);
+      wire(new THREE.Vector3(poleX + 0.7, 5.62, poleZ), new THREE.Vector3(-4.0, 4.6, -4.1), 1.0);
+    }
+
+    // ============================================================
+    // ПАТЧ 12 — РЕКЛАМНЫЙ ЩИТ (оригинальный бренд) И ДОПОЛНИТЕЛЬНЫЕ ВЫВЕСКИ
+    // ============================================================
+    function createBillboardTexture() {
+      const w = 1024;
+      const h = 572;
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d');
+      const font = '"Segoe UI", Meiryo, "Hiragino Sans", "Yu Gothic", sans-serif';
+
+      const bg = ctx.createLinearGradient(0, 0, w, h);
+      bg.addColorStop(0, '#12062e');
+      bg.addColorStop(1, '#3a0a52');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      // Диагональные неоновые полосы
+      ctx.globalAlpha = 0.25;
+      ['#00f3ff', '#ff007f'].forEach((col, i) => {
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.moveTo(560 + i * 140, 0);
+        ctx.lineTo(640 + i * 140, 0);
+        ctx.lineTo(360 + i * 140, h);
+        ctx.lineTo(280 + i * 140, h);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+
+      // Банка напитка
+      const rr = (x, y, ww, hh, r) => {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + ww, y, x + ww, y + hh, r);
+        ctx.arcTo(x + ww, y + hh, x, y + hh, r);
+        ctx.arcTo(x, y + hh, x, y, r);
+        ctx.arcTo(x, y, x + ww, y, r);
+        ctx.closePath();
+      };
+      const cg = ctx.createLinearGradient(80, 0, 260, 0);
+      cg.addColorStop(0, '#ff1744');
+      cg.addColorStop(0.5, '#ff6b81');
+      cg.addColorStop(1, '#a00f2e');
+      rr(80, 80, 180, 410, 28);
+      ctx.fillStyle = cg;
+      ctx.fill();
+      ctx.save();
+      rr(80, 80, 180, 410, 28);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(60, 300);
+      ctx.quadraticCurveTo(170, 230, 290, 300);
+      ctx.lineTo(290, 340);
+      ctx.quadraticCurveTo(170, 270, 60, 340);
+      ctx.fill();
+      ctx.restore();
+
+      const neon = (text, x, y, size, color, core) => {
+        ctx.font = `bold ${size}px ${font}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 36;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 14;
+        ctx.fillText(text, x, y);
+        ctx.fillStyle = core;
+        ctx.shadowBlur = 5;
+        ctx.fillText(text, x, y);
+        ctx.shadowBlur = 0;
+      };
+      neon('NEO·KOLA', 310, 210, 130, '#00f3ff', '#ffffff');
+      neon('ネオコーラ', 320, 350, 92, '#ff007f', '#fff0f8');
+      neon('STAY ELECTRIC', 320, 460, 48, '#ffd166', '#fffbe6');
+
+      ctx.shadowBlur = 24;
+      ctx.shadowColor = '#00f3ff';
+      ctx.strokeStyle = '#00f3ff';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(16, 16, w - 32, h - 32);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      return tex;
+    }
+
+    function addBillboardNeon(g) {
+      const baseColor = new THREE.Color(0xff007f);
+      const frameMat = new THREE.MeshBasicMaterial({ color: baseColor.clone(), toneMapped: false });
+      const fw = 3.6;
+      const fh = 2.1;
+      const ft = 0.05;
+      [
+        [0, fh / 2, fw, ft],
+        [0, -fh / 2, fw, ft],
+        [-fw / 2, 0, ft, fh],
+        [fw / 2, 0, ft, fh]
+      ].forEach(([x, y, w, h]) => {
+        [0.14, -0.14].forEach((z) => { // спереди и сзади (щит двусторонний)
+          const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.04), frameMat);
+          m.position.set(x, 3.3 + y, z);
+          g.add(m);
+        });
+      });
+
+      // Мягкий ореол позади щита
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: getGlowTex(), color: 0xff3fa4, transparent: true, opacity: 0.3,
+        depthWrite: false, blending: THREE.AdditiveBlending, fog: false
+      }));
+      halo.scale.set(6.5, 4.2, 1);
+      halo.position.set(0, 3.3, -0.35);
+      g.add(halo);
+
+      // «Дыхание» и редкое подмигивание рамки
+      propUpdates.push((t) => {
+        const flicker = Math.sin(t * 1.3) * Math.sin(t * 7.1) > 0.85 ? 0.35 : 1;
+        const f = (0.78 + 0.22 * Math.sin(t * 3.1)) * flicker;
+        frameMat.color.copy(baseColor).multiplyScalar(f);
+        halo.material.opacity = 0.3 * f;
+      });
+    }
+
+    function buildBillboard() {
+      const g = new THREE.Group();
+      const board = create3DLightboxMesh({
+        w: 3.4, h: 1.9, d: 0.2, texture: createBillboardTexture(), doubleSided: true, bracketType: 'none'
+      });
+      board.position.y = 3.3;
+      g.add(board);
+      addBillboardNeon(g);
+      [-1.3, 1.3].forEach((x) => {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 3.1, 8), MAT.metalPipe);
+        post.position.set(x, 1.55, -0.18);
+        post.castShadow = true;
+        g.add(post);
+      });
+      glowDecal(g, 0, 0.9, 4.2, 0x00c8ff, 0.3);
+      g.position.set(-6.9, 0.25, 5.2);
+      g.rotation.y = Math.PI / 2; // лицом к улице (+X)
+      islandGroup.add(g);
+    }
+
+    function buildExtraSigns() {
+      // Вертикальная «酒場» на левой стене лапшичной
+      const sakeTex = createHDNeonSignTexture({
+        width: 512, height: 1024, text: '酒場', color: '#ff2fa8', glowColor: '#ff007f',
+        coreColor: '#fff0f8', isVertical: true, fontSize: 200
+      });
+      const sake = create3DLightboxMesh({
+        w: 0.6, h: 1.5, d: 0.12, texture: sakeTex, doubleSided: true, bracketType: 'none'
+      });
+      sake.position.set(-2.28, 1.6, 1.1);
+      sake.rotation.y = -Math.PI / 2;
+      pagodaGroup.add(sake);
+
+      // «24H» на правой стене отеля
+      const hTex = createHDNeonSignTexture({
+        width: 1024, height: 512, text: '24H', color: '#39ff88', glowColor: '#16a34a',
+        coreColor: '#f0fff6', fontSize: 230
+      });
+      const h24 = create3DLightboxMesh({
+        w: 1.0, h: 0.5, d: 0.1, texture: hTex, doubleSided: true, bracketType: 'none'
+      });
+      h24.position.set(1.86, 1.2, 1.3);
+      h24.rotation.y = Math.PI / 2;
+      hotelGroup.add(h24);
+    }
+
+    // ============================================================
+    // ПАТЧ 13 — ПУСТЫЕ МЕСТА: ЦВЕТОЧНИЦА И СКАМЬЯ У САКУРЫ, АВТОБУСНАЯ ОСТАНОВКА, ПАР ИЗ ЛЮКА
+    // ============================================================
+    function buildTreeSurroundings() {
+      const g = sakuraGroup;
+      const stone = new THREE.MeshStandardMaterial({ color: 0x2b3350, roughness: 0.7, metalness: 0.1 });
+      const planter = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.05, 0.2, 18), stone);
+      planter.position.y = 0.1;
+      planter.receiveShadow = true;
+      g.add(planter);
+      const soil = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.88, 0.88, 0.02, 18),
+        new THREE.MeshStandardMaterial({ color: 0x2a1a14, roughness: 1 })
+      );
+      soil.position.y = 0.205;
+      g.add(soil);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.025, 6, 32), MAT.neonPink);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.2;
+      g.add(ring);
+
+      // Ковёр из лепестков вокруг цветочницы
+      glowDecal(g, 0, 0, 4.2, 0xff4fa3, 0.45);
+
+      // Светящиеся цветы в земле
+      const flowerColors = [0x00f3ff, 0xff007f, 0xffaa00];
+      for (let i = 0; i < 9; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const rad = 0.55 + Math.random() * 0.25;
+        const x = Math.cos(a) * rad;
+        const z = Math.sin(a) * rad;
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 5), MAT.sakuraTrunk);
+        stem.position.set(x, 0.29, z);
+        g.add(stem);
+        const bud = new THREE.Mesh(
+          new THREE.SphereGeometry(0.035, 8, 6),
+          new THREE.MeshBasicMaterial({ color: flowerColors[i % 3], toneMapped: false })
+        );
+        bud.position.set(x, 0.39, z);
+        g.add(bud);
+      }
+
+      // Скамья лицом к дороге
+      const bench = new THREE.Group();
+      const wood = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.55 });
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.4), wood);
+      seat.position.y = 0.42;
+      const back = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.34, 0.05), wood);
+      back.position.set(0, 0.64, -0.18);
+      bench.add(seat, back);
+      [-0.5, 0.5].forEach((x) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.34), MAT.metalPipe);
+        leg.position.set(x, 0.21, 0);
+        bench.add(leg);
+      });
+      bench.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+      bench.position.set(-1.3, 0, 1.4);
+      bench.rotation.y = -Math.PI / 2;
+      g.add(bench);
+    }
+
+    function buildBusStop() {
+      const g = new THREE.Group();
+      const add = (geo, mat, x, y, z) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.castShadow = true;
+        g.add(m);
+        return m;
+      };
+      const glass = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8, transparent: true, opacity: 0.16, roughness: 0.1, metalness: 0.2, side: THREE.DoubleSide
+      });
+      const wood = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.55 });
+
+      add(new THREE.BoxGeometry(2.0, 0.08, 1.0), MAT.metalPipe, 0, 2.3, 0);
+      add(new THREE.BoxGeometry(1.9, 0.03, 0.9), MAT.neonCyan, 0, 2.25, 0); // подсветка под крышей
+      [-0.95, 0.95].forEach((x) => add(new THREE.CylinderGeometry(0.04, 0.04, 2.3, 6), MAT.metalPipe, x, 1.15, -0.45));
+      add(new THREE.BoxGeometry(1.9, 1.7, 0.03), glass, 0, 1.2, -0.45);
+      add(new THREE.BoxGeometry(1.4, 0.07, 0.38), wood, 0, 0.45, -0.2);
+      [-0.6, 0.6].forEach((x) => add(new THREE.BoxGeometry(0.05, 0.45, 0.3), MAT.metalPipe, x, 0.22, -0.2));
+
+      const busTex = createHDNeonSignTexture({
+        width: 1024, height: 512, text: 'バス停', color: '#38bdf8', glowColor: '#0ea5e9',
+        coreColor: '#e0f2fe', fontSize: 240
+      });
+      const sign = create3DLightboxMesh({
+        w: 1.5, h: 0.5, d: 0.12, texture: busTex, doubleSided: true, bracketType: 'none'
+      });
+      sign.position.set(0, 2.62, 0);
+      g.add(sign);
+
+      glowDecal(g, 0, 0.1, 3.2, 0x38bdf8, 0.3);
+      g.position.set(3.9, 0.25, 6.0);
+      g.rotation.y = -Math.PI / 2; // лицом к дороге (-X)
+      islandGroup.add(g);
+    }
+
+    // Человек в остановке (вызови после buildBusStop()):
+    function addStopPerson() {
+      const p = createOutfitCitizen(3);
+      addBackpack(p, 0x111827);
+      p.position.set(3.55, 0.25, 6.0);
+      p.rotation.y = -Math.PI / 2; // лицом к дороге (-X)
+      islandGroup.add(p);
+      citizens.push(p);
+    }
+
+    function buildManholeSteam() {
+      createSteamEmitter(new THREE.Vector3(-1.4, 0.05, 1.6), {
+        count: 28, height: 2.6, spread: 0.3, size: 1.0, color: 0xb4c6ff
+      });
+    }
+
+    // Call builders before animate
+    buildBackAlley();
+    buildBillboard();
+    buildExtraSigns();
+    buildTreeSurroundings();
+    buildBusStop();
+    addStopPerson();
+    buildManholeSteam();
+
+    // Pre-warm shaders and render a trial frame before dismissing loader
+    try {
+      await Promise.race([
+        renderer.compileAsync(scene, camera),
+        new Promise((resolve) => setTimeout(resolve, 2500))
+      ]);
+    } catch (e) {
+      console.warn('compileAsync пропущен:', e);
+    }
+    renderer.render(scene, camera);
+    const loader = document.getElementById('loader');
+    if (loader) loader.classList.add('hidden');
+
+    // ============================================================
+    // ПАТЧ 16 — НАСТРОЙКИ КАЧЕСТВА И FPS-МЕТР
+    // ============================================================
+    const QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
+    let quality = 2;
+    let shadowEvery = 2; // обновлять тени каждые N кадров
+    let shadowTick = 0;
+
+    function setQuality(q) {
+      quality = q;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      if (q === 2) {
+        // HIGH: всё, как есть сейчас
+        useBloom = true;
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        if (bikeWarmLight) bikeWarmLight.castShadow = true;
+        shadowEvery = 2;
+      } else if (q === 1) {
+        // MEDIUM: bloom остаётся, но дешевле (в четверть разрешения), без тени от лампы у байка
+        useBloom = true;
+        renderer.setPixelRatio(1);
+        if (bikeWarmLight) bikeWarmLight.castShadow = false;
+        shadowEvery = 4;
+      } else {
+        // LOW: без bloom
+        useBloom = false;
+        renderer.setPixelRatio(1);
+        if (bikeWarmLight) bikeWarmLight.castShadow = false;
+        shadowEvery = 6;
+      }
+
+      renderer.setSize(w, h);
+      composer.setPixelRatio(renderer.getPixelRatio());
+      composer.setSize(w, h);
+      if (q === 1) {
+        const pr = renderer.getPixelRatio();
+        bloomPass.setSize(Math.floor((w * pr) / 2), Math.floor((h * pr) / 2)); // внутри делится на 2 ещё раз
+      }
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyQ') setQuality((quality + 2) % 3); // HIGH -> MEDIUM -> LOW -> HIGH
+    });
+
+    // FPS-метр (клавиша F): FPS, число вызовов отрисовки, треугольники
+    const fpsBox = document.createElement('div');
+    Object.assign(fpsBox.style, {
+      position: 'fixed', left: '12px', top: '12px', zIndex: '60', padding: '6px 10px',
+      font: '12px monospace', color: '#a5f3fc', background: 'rgba(11,6,29,.7)',
+      border: '1px solid rgba(0,243,255,.35)', borderRadius: '8px', display: 'none'
+    });
+    document.body.appendChild(fpsBox);
+    let fpsFrames = 0;
+    let fpsAcc = 0;
+    let meterOn = false;
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyF') {
+        meterOn = !meterOn;
+        fpsBox.style.display = meterOn ? 'block' : 'none';
+      }
+    });
+
+    function updateFpsMeter(rawDelta) {
+      if (!meterOn) return;
+      fpsFrames++;
+      fpsAcc += rawDelta;
+      if (fpsAcc >= 0.5) {
+        const info = renderer.info.render;
+        fpsBox.textContent =
+          Math.round(fpsFrames / fpsAcc) + ' FPS | calls ' + info.calls +
+          ' | tris ' + info.triangles + ' | ' + QUALITY_NAMES[quality];
+        fpsFrames = 0;
+        fpsAcc = 0;
+      }
+    }
 
     // ========================================================
     // 13. ANIMATION LOOP (Solid 60 FPS Performance)
     // ========================================================
     const clock = new THREE.Clock();
 
+    // Reset clock and restart watchdog when tab returns from background
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        clock.getDelta(); // «съедает» накопленную паузу
+        if (!fpsChecked) {
+          warmupFrames = 0;
+          fpsSamples = [];
+          lastFrameTime = performance.now();
+        }
+      }
+    });
+
+    function patrolPos(t, phase, speed, ampX, ampZ, baseY, bobAmp, out) {
+      const a = t * speed + phase;
+      out.set(
+        Math.sin(a) * ampX,
+        baseY + Math.sin(t * 1.5 + phase) * bobAmp,
+        Math.cos(a * 0.62) * ampZ
+      );
+      return out;
+    }
+    const _dTmpA = new THREE.Vector3();
+    const _dTmpB = new THREE.Vector3();
+
+    function updateDrone(drone, t, phase, speed, ampX, ampZ, baseY) {
+      patrolPos(t, phase, speed, ampX, ampZ, baseY, 0.3, _dTmpA);
+      patrolPos(t + 0.05, phase, speed, ampX, ampZ, baseY, 0.3, _dTmpB);
+      drone.position.copy(_dTmpA);
+      // «глаз» дрона смотрит в +Z, поэтому поворачиваем по направлению движения
+      drone.rotation.y = Math.atan2(_dTmpB.x - _dTmpA.x, _dTmpB.z - _dTmpA.z);
+    }
+
     function animate() {
       requestAnimationFrame(animate);
+      renderer.info.reset();
 
-      const delta = clock.getDelta();
+      // Clamp delta to avoid leaps after background tab pauses
+      const rawDelta = clock.getDelta();
+      const delta = Math.min(rawDelta, 0.05);
       const time = clock.getElapsedTime();
 
       // 1. Organic Island Levitation
       islandGroup.position.y = Math.sin(time * 0.8) * 0.28;
 
-      // 2. Turntable OrbitControls (Smooth continuous auto-rotation)
+      // 2. Cinematic Camera Auto-Orbit Navigation (Smooth User Input Blending)
+      const idleSec = (performance.now() - lastUserActionTime) / 1000;
+      const wantCinematic = (!userInteracting && idleSec > 3.5);
+      const kWeight = 1 - Math.exp(-1.8 * delta);
+      cinematicWeight = THREE.MathUtils.lerp(cinematicWeight, wantCinematic ? 1.0 : 0.0, kWeight);
+
+      if (cinematicWeight > 0.001) {
+        autoOrbitAngle += delta * 0.16;
+
+        // Radius modulates between 15.5 (close zoom on signs) and 31.0 (grand overview)
+        const curRadius = 23.0 + Math.sin(time * 0.11) * 6.0 + Math.cos(time * 0.23) * 2.5;
+
+        // Height modulates between 9.5 (low dramatic angle) and 20.0 (high isometric)
+        const curHeight = 14.5 + Math.sin(time * 0.16) * 4.5 + Math.cos(time * 0.08) * 2.0;
+
+        const desiredCamX = Math.cos(autoOrbitAngle) * curRadius;
+        const desiredCamZ = Math.sin(autoOrbitAngle) * curRadius;
+        const desiredCamY = curHeight;
+
+        const desiredTargetX = Math.sin(time * 0.12) * 1.5;
+        const desiredTargetY = 2.8 + Math.cos(time * 0.18) * 0.9;
+        const desiredTargetZ = Math.cos(time * 0.14) * 1.5;
+
+        const kCam = 1 - Math.exp(-2.2 * delta);
+        camera.position.lerp(new THREE.Vector3(desiredCamX, desiredCamY, desiredCamZ), cinematicWeight * kCam);
+        controls.target.lerp(new THREE.Vector3(desiredTargetX, desiredTargetY, desiredTargetZ), cinematicWeight * kCam);
+      }
       controls.update();
 
       // 3. Fast Continuous Rain Streaks
@@ -1744,7 +3359,8 @@
 
         const progress = r.age / r.maxAge;
         const curScale = 0.1 + progress * r.maxScale;
-        dummyObj.position.set(r.x, 0.02, r.z);
+        const onSidewalk = Math.abs(r.x) > 2.9;
+        dummyObj.position.set(r.x, onSidewalk ? 0.27 : 0.03, r.z);
         dummyObj.scale.set(curScale, curScale, curScale);
         dummyObj.updateMatrix();
         rippleMesh.setMatrixAt(i, dummyObj.matrix);
@@ -1773,27 +3389,80 @@
         l.rotation.z = Math.sin(time * 2.2 + idx * 1.3) * 0.05;
       });
 
-      // 8. Clean Patrol Drones Organic Flight Trajectory (No Cones!)
-      const d1Angle = time * 0.62;
-      drone1.position.set(
-        Math.cos(d1Angle) * 7.5,
-        3.8 + Math.sin(time * 1.5) * 0.4,
-        Math.sin(d1Angle) * 7.5 + Math.cos(time * 0.7) * 1.1
-      );
-      drone1.rotation.y = -d1Angle + Math.PI / 2;
+      // 8. Clean Patrol Drones Street Corridor Navigation
+      updateDrone(drone1, time, 0.0, 0.50, 1.8, 6.2, 2.7);
+      updateDrone(drone2, time, 2.4, 0.40, 1.6, 5.8, 3.3);
 
-      const d2Angle = -time * 0.48 + Math.PI;
-      drone2.position.set(
-        Math.cos(d2Angle) * 6.8,
-        4.6 + Math.cos(time * 1.7) * 0.45,
-        Math.sin(d2Angle) * 6.8 + Math.sin(time * 0.8) * 0.9
-      );
-      drone2.rotation.y = -d2Angle + Math.PI / 2;
+      // 9. AC Unit High-Speed Fan Spin
+      acFan.rotation.z += delta * 24.0;
 
-      // 9. Slow Void Clouds Drift
+      // 10. Warm Ramen Steam Rising & Curling
+      const sPos = steamGeo.attributes.position.array;
+      for (let i = 0; i < steamParticleCount; i++) {
+        const sd = steamData[i];
+        sPos[i * 3 + 1] += sd.speed * delta;
+        sPos[i * 3] = sd.srcX + Math.sin(time * 2.5 + sd.driftPhase) * 0.06;
+        if (sPos[i * 3 + 1] > sd.yMax) {
+          sPos[i * 3 + 1] = sd.yStart;
+          sPos[i * 3] = sd.srcX + (Math.random() - 0.5) * 0.06;
+        }
+      }
+      steamGeo.attributes.position.needsUpdate = true;
+
+      // 11. Cyber Citizens (Capsule anatomy + procedurally animated limbs & breathing)
+      citizens.forEach(c => c.userData.update(time));
+
+      // 11b. Falling Sakura Petals (~60 particles gently drifting)
+      const ptPos = petalGeo.attributes.position.array;
+      for (let i = 0; i < petalCount; i++) {
+        const pd = petalData[i];
+        ptPos[i * 3 + 1] -= pd.fallSpeed * delta;
+        ptPos[i * 3] = pd.baseX + Math.sin(time * pd.swaySpeed + pd.phase) * pd.swayRadius;
+        ptPos[i * 3 + 2] = pd.baseZ + Math.cos(time * pd.swaySpeed * 0.7 + pd.phase) * (pd.swayRadius * 0.8);
+        if (ptPos[i * 3 + 1] < 0.05) {
+          ptPos[i * 3 + 1] = pd.yStart;
+          pd.baseX = 4.6 + (Math.random() - 0.5) * 4.0;
+          pd.baseZ = 2.8 + (Math.random() - 0.5) * 4.0;
+        }
+      }
+      petalGeo.attributes.position.needsUpdate = true;
+
+      // 12. Sign Lighting Effects:
+      // «ラーメン»: constant subtle micro-flicker
+      const rf = 0.93 + 0.07 * Math.sin(time * 24.0) + (Math.random() < 0.03 ? -0.22 : 0.03 * (Math.random() - 0.5));
+      if (ramenLightbox.userData.faceMat) {
+        ramenLightbox.userData.faceMat.color.setRGB(rf, rf * 0.95, rf * 0.85);
+      }
+      ramenWarmLight.intensity = 4.6 * rf;
+
+      // «荒坂»: occasional digital power glitch (short blackout & fast strobing)
+      const aGlitch = time % 6.8;
+      let aPower = 1.0;
+      if (aGlitch < 0.32) {
+        aPower = Math.sin(aGlitch * 60.0) > 0 ? 0.95 : 0.05;
+        if (aGlitch > 0.1 && aGlitch < 0.2) aPower = 0.0;
+      }
+      if (arasakaLightbox.userData.faceMat) {
+        arasakaLightbox.userData.faceMat.color.setRGB(aPower, aPower * 0.09, aPower * 0.23);
+      }
+      if (arasakaGlow) {
+        arasakaGlow.intensity = 3.2 * aPower;
+      }
+
+      // «カプセルホテル» & «義体»: slow organic breathing
+      const bCyan = 0.85 + 0.15 * Math.sin(time * 1.6);
+      if (hotelLightbox.userData.faceMat) {
+        hotelLightbox.userData.faceMat.color.setRGB(bCyan * 0.8, bCyan, bCyan);
+      }
+      const bPurple = 0.86 + 0.14 * Math.cos(time * 1.4);
+      if (gitaiLightbox.userData.faceMat) {
+        gitaiLightbox.userData.faceMat.color.setRGB(bPurple, bPurple * 0.6, bPurple);
+      }
+
+      // 13. Slow Void Fog Drift
       cloudsGroup.rotation.y = time * 0.015;
 
-      // 10. Distant Flying Speeders Horizontal Traffic & Organic Bobbing
+      // 14. Distant Flying Speeders Horizontal Traffic & Organic Bobbing
       speeder1.position.x += 8.2 * delta;
       speeder1.position.y = 6.0 + Math.sin(time * 2.2) * 0.14;
       if (speeder1.position.x > 35) {
@@ -1809,18 +3478,174 @@
       // Gentle pulsing of under-island void levitation light
       underIslandLight.intensity = 5.2 + 0.6 * Math.sin(time * 2.0);
 
-      // 11. Render Frame
-      renderer.render(scene, camera);
+      // Micro-animations for Urban Props & Steam Emitters (Patches 10-13)
+      propUpdates.forEach((fn) => fn(time));
+      steamEmitters.forEach((e) => e.update(delta));
+
+      // Spatial 3D Audio & Thunder/Lightning (Patch 9)
+      updateAudio3D(camera);
+      updateLightning(time, delta);
+
+      // 15. FPS Performance Watchdog Check (skip 60 warmup frames, measure 3s, median FPS < 28)
+      if (!fpsChecked && !document.hidden) {
+        const now = performance.now();
+        const frameDt = (now - lastFrameTime) / 1000;
+        lastFrameTime = now;
+
+        if (warmupFrames < WARMUP_COUNT) {
+          warmupFrames++;
+          if (warmupFrames === WARMUP_COUNT) {
+            fpsMeasureStartTime = now;
+            fpsSamples = [];
+          }
+        } else {
+          if (frameDt > 0.0005 && frameDt < 0.5) {
+            fpsSamples.push(1 / frameDt);
+          }
+          if (now - fpsMeasureStartTime >= 3000) {
+            if (fpsSamples.length > 10) {
+              fpsSamples.sort((a, b) => a - b);
+              const medianFps = fpsSamples[Math.floor(fpsSamples.length / 2)];
+              if (medianFps < 28 && quality > 0) {
+                setQuality(quality - 1);
+                warmupFrames = 0;
+                fpsSamples = [];
+                lastFrameTime = performance.now();
+              } else {
+                fpsChecked = true;
+              }
+            } else {
+              fpsChecked = true;
+            }
+          }
+        }
+      }
+
+      if (++shadowTick >= shadowEvery) { shadowTick = 0; renderer.shadowMap.needsUpdate = true; }
+      updateFpsMeter(rawDelta);
+
+      // 16. Render Frame (EffectComposer Bloom or Native Fallback)
+      if (useBloom) {
+        composer.render();
+      } else {
+        renderer.render(scene, camera);
+      }
     }
 
     animate();
 
     // Responsive Window Resize Handler
     window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      setQuality(quality);
+    });
+
+    // ============================================================
+    // ПАТЧ 2 — ЗВУК: ДОЖДЬ + СИНТ-ПЭД (Web Audio, без файлов)
+    // ============================================================
+    // Нагрузка на процессор минимальная (несколько осцилляторов и один буфер шума),
+    // на FPS почти не влияет. Звук по умолчанию ВЫКЛЮЧЕН: браузеры требуют клика.
+    // Вставь этот блок в конец module-скрипта (после animate();).
+
+
+    function buildAudio() {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0;
+      masterGain.connect(audioCtx.destination);
+
+      // --- Дождь: зацикленный белый шум через фильтры ---
+      const len = audioCtx.sampleRate * 2;
+      const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buf;
+      noise.loop = true;
+
+      const hp = audioCtx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 900;
+      const lp = audioCtx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 7000;
+      const rainGain = audioCtx.createGain();
+      rainGain.gain.value = 0.2;
+
+      noise.connect(hp);
+      hp.connect(lp);
+      lp.connect(rainGain);
+      rainGain.connect(masterGain);
+      noise.start();
+
+      // --- Мягкий пэд: аккорд Am9, слегка расстроенные осцилляторы ---
+      const padFilter = audioCtx.createBiquadFilter();
+      padFilter.type = 'lowpass';
+      padFilter.frequency.value = 700;
+      padFilter.Q.value = 0.7;
+      const padGain = audioCtx.createGain();
+      padGain.gain.value = 0.022;
+      padFilter.connect(padGain);
+      padGain.connect(masterGain);
+
+      [55, 110, 164.81, 220, 261.63, 329.63].forEach((f, i) => {
+        [-6, 6].forEach((det) => {
+          const o = audioCtx.createOscillator();
+          o.type = i < 2 ? 'sine' : 'sawtooth';
+          o.frequency.value = f;
+          o.detune.value = det;
+          o.connect(padFilter);
+          o.start();
+        });
+      });
+
+      // Медленное «дыхание» фильтра
+      const lfo = audioCtx.createOscillator();
+      lfo.frequency.value = 0.07;
+      const lfoGain = audioCtx.createGain();
+      lfoGain.gain.value = 350;
+      lfo.connect(lfoGain);
+      lfoGain.connect(padFilter.frequency);
+      lfo.start();
+
+      buildAudioExtras();
+    }
+
+    const soundBtn = document.createElement('button');
+    soundBtn.textContent = '🔇 Звук';
+    Object.assign(soundBtn.style, {
+      position: 'absolute',
+      right: '18px',
+      bottom: '18px',
+      zIndex: '50',
+      padding: '10px 16px',
+      font: '600 14px -apple-system, "Segoe UI", sans-serif',
+      color: '#cffafe',
+      background: 'rgba(11, 6, 29, 0.65)',
+      border: '1px solid rgba(0, 243, 255, 0.5)',
+      borderRadius: '999px',
+      cursor: 'pointer',
+      backdropFilter: 'blur(6px)'
+    });
+    document.body.appendChild(soundBtn);
+
+    soundBtn.addEventListener('click', async () => {
+      if (!audioCtx) buildAudio();
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+      audioOn = !audioOn;
+      masterGain.gain.setTargetAtTime(audioOn ? 0.6 : 0, audioCtx.currentTime, 0.4);
+      soundBtn.textContent = audioOn ? '🔊 Звук' : '🔇 Звук';
+    });
+
+    // Не шуметь, когда вкладка скрыта
+    document.addEventListener('visibilitychange', () => {
+      if (!audioCtx) return;
+      if (document.hidden) audioCtx.suspend();
+      else if (audioOn) audioCtx.resume();
     });
   </script>
 </body>
