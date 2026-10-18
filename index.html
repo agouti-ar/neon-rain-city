@@ -1159,21 +1159,70 @@
     function poseWallLean(c) {
       const p = c.userData.parts;
       c.rotation.order = 'YXZ';
-      c.rotation.x = -0.09; // Leaning back comfortably against the wall
-      // Right leg straight support
+      c.rotation.x = 0.08; // Lean back into wall surface
+      // Right leg straight ground support
       p.legR.thigh.rotation.set(0.06, 0, 0.04);
       p.legR.shin.rotation.x = -0.04;
-      // Left leg propped up: knee raised, foot braced flat against the wall
+      // Left leg propped up: knee raised, foot resting back against the wooden wall
       p.legL.thigh.rotation.set(-0.85, 0, -0.08);
       p.legL.shin.rotation.x = 1.35;
-      // Left arm resting in pocket / side
+      // Left arm resting relaxed at side/pocket
       p.armL.upper.rotation.set(-0.32, 0, -0.12);
       p.armL.fore.rotation.x = -0.45;
-      // Right arm holding cigarette up towards mouth
-      p.armR.upper.rotation.set(-0.62, 0, 0.18);
-      p.armR.fore.rotation.x = -2.05;
-      c.userData.headYaw = 0.25;
+      c.userData.headYaw = -0.15;
       c.userData.headPitch = -0.04;
+    }
+
+    function animateSmoker(c, ember, { isBalcony = false, period = 7.5, phase = 0 } = {}) {
+      const p = c.userData.parts;
+      const baseUpdate = c.userData.update;
+
+      const restUpperX = isBalcony ? -0.72 : -0.32;
+      const restUpperZ = isBalcony ? 0.12 : 0.15;
+      const restForeX = isBalcony ? -0.85 : -0.55;
+
+      const smokeUpperX = isBalcony ? -0.60 : -0.62;
+      const smokeUpperZ = isBalcony ? 0.16 : 0.18;
+      const smokeForeX = -2.05;
+
+      const smooth = (x) => x * x * (3 - 2 * x);
+
+      c.userData.update = (time) => {
+        if (baseUpdate) baseUpdate(time);
+
+        const t = (time + phase) % period;
+        let lift = 0;
+        let emberDrag = 0.35;
+
+        if (t < 3.2) {
+          lift = 0;
+          emberDrag = 0.35;
+        } else if (t < 4.1) {
+          const u = smooth((t - 3.2) / 0.9);
+          lift = u;
+          emberDrag = 0.35 + u * 0.45;
+        } else if (t < 5.4) {
+          lift = 1.0;
+          const dragPulse = Math.sin((t - 4.1) * 3.5);
+          emberDrag = 0.9 + 0.25 * Math.max(0, dragPulse);
+          c.userData.headPitch = (c.userData.headPitch || 0) + 0.05 * Math.sin((t - 4.1) * 2.0);
+        } else if (t < 6.2) {
+          const u = smooth((t - 5.4) / 0.8);
+          lift = 1.0 - u;
+          emberDrag = 0.75 - u * 0.4;
+        } else {
+          lift = 0;
+          emberDrag = 0.35;
+        }
+
+        p.armR.upper.rotation.x = restUpperX + (smokeUpperX - restUpperX) * lift;
+        p.armR.upper.rotation.z = restUpperZ + (smokeUpperZ - restUpperZ) * lift;
+        p.armR.fore.rotation.x = restForeX + (smokeForeX - restForeX) * lift;
+
+        if (ember && ember.material) {
+          ember.material.color.setRGB(1.0 * emberDrag, 0.42 * emberDrag, 0.02 * emberDrag);
+        }
+      };
     }
 
     function poseKiss(a, b) {
@@ -3692,10 +3741,8 @@
       );
       ember.position.set(0, -0.21, 0.02);
       smoker.userData.parts.armR.fore.add(ember);
-      propUpdates.push((t) => {
-        const drag = t % 4.5 < 1.0 ? 1 : 0.35; // Periodic inhalation ember intensity cycle
-        ember.material.color.setRGB(1 * drag, 0.4 * drag, 0);
-      });
+      animateSmoker(smoker, ember, { isBalcony: true, period: 7.2, phase: 0 });
+
       // Micro-steam plume above cigarette ember (world-space transform)
       createSteamEmitter(
         new THREE.Vector3(4.8 + 0.9 + 0.08, 0.25 + deckY + 0.04 + 1.28, -2.8 - 2.58),
@@ -3794,8 +3841,8 @@
 
       // Alley courier taking a smoke break, leaning back against the wall beneath the chochin lantern
       const alleySmoker = createOutfitCitizen(3, { hood: false, visor: false, headband: true });
-      alleySmoker.position.set(-0.25, 0, -2.35);
-      alleySmoker.rotation.y = 0; // Facing forward into alley (+Z), leaning back against kitchen wall
+      alleySmoker.position.set(-0.35, 0, -2.35);
+      alleySmoker.rotation.y = Math.PI; // Facing outward into the alley (-Z), back against kitchen wall (+Z)
       poseWallLean(alleySmoker);
       g.add(alleySmoker);
       citizens.push(alleySmoker);
@@ -3806,15 +3853,12 @@
       );
       alleyEmber.position.set(0, -0.21, 0.02);
       alleySmoker.userData.parts.armR.fore.add(alleyEmber);
-      propUpdates.push((t) => {
-        const drag = t % 4.8 < 1.1 ? 1 : 0.35;
-        alleyEmber.material.color.setRGB(1 * drag, 0.4 * drag, 0);
-      });
+      animateSmoker(alleySmoker, alleyEmber, { isBalcony: false, period: 8.0, phase: 4.0 });
 
       // Micro-steam plume rising from cigarette ember beneath the swaying lantern
       createSteamEmitter(
-        new THREE.Vector3(-4.9 - 0.25 + 0.12, 0.25 + 1.25, -2.8 - 2.35 + 0.1),
-        { count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1 }
+        new THREE.Vector3(-4.8 - 0.35 + 0.08, 0.25 + 1.25, -2.5 - 2.35 - 0.12),
+        { count: 12, height: 0.95, spread: 0.08, size: 0.28, color: 0xcbd5e1 }
       );
 
       // Shinto roadside shrine with warm votive flame
