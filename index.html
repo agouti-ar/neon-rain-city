@@ -110,6 +110,7 @@
     import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
     import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
     import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
     // Visible error banner
     window.addEventListener('error', (e) => {
@@ -137,6 +138,7 @@
 
     const camera = new THREE.PerspectiveCamera(36, window.innerWidth / window.innerHeight, 0.1, 150);
     camera.position.set(25, 17, 25);
+    applyResponsiveFov();
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -881,48 +883,40 @@
     }
 
     function createCitizen({
-      coat = 0x141824,
-      trim = 0x00f3ff,
-      pants = null,
-      boots = null,
-      gloves = null,
-      collar = false,
-      bomber = false,
-      beret = false,
-      cargoPockets = false,
-      seatHeight = null,
-      sitting = false,
-      longCoat = false,
-      hood = true,
-      visor = true,
-      headband = false,
-      apron = false,
-      eating = false,
-      phase = Math.random() * 6
+      coat = 0x141824, trim = 0x00f3ff, sitting = false, longCoat = false, hood = true, visor = true,
+      headband = false, apron = false, eating = false,
+      hat = null, hatColor = 0x1f2937, scarf = null, mask = false, glowTrim = false,
+      skin = 0x9c7a68, hair = 0x07080c, phase = Math.random() * 6
     } = {}) {
       const g = new THREE.Group();
       const coatMat = new THREE.MeshStandardMaterial({ color: coat, roughness: 0.75, metalness: 0.1 });
-      const pantsMat = pants ? new THREE.MeshStandardMaterial({ color: pants, roughness: 0.85 }) : null;
-      const darkMat = new THREE.MeshStandardMaterial({ color: 0x07080c, roughness: 0.9 });
-      const skinMat = new THREE.MeshStandardMaterial({ color: 0x9c7a68, roughness: 0.8 });
-      const handMat = gloves ? new THREE.MeshStandardMaterial({ color: gloves, roughness: 0.85 }) : skinMat;
+      const darkMat = new THREE.MeshStandardMaterial({ color: hair, roughness: 0.9 });
+      const blackMat = new THREE.MeshStandardMaterial({ color: 0x07080c, roughness: 0.9 });
+      const skinMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.8 });
       const glowMat = new THREE.MeshBasicMaterial({ color: trim, toneMapped: false });
 
-      const hipY = sitting ? (seatHeight ?? 0.59) : 0.76;
+      const hipY = sitting ? 0.59 : 0.76;
+      const body = new THREE.Group(); // верх тела вращается вокруг бёдер
+      body.position.y = hipY;
+      g.add(body);
 
-      // Torso mesh (elliptical Z-compression or voluminous bomber)
-      const torsoScaleX = bomber ? 1.15 : 1.0;
-      const torsoScaleZ = bomber ? 0.85 : 0.72;
       const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.28, 4, 10), coatMat);
-      torso.scale.set(torsoScaleX, 1, torsoScaleZ);
-      torso.position.y = hipY + 0.28;
+      torso.scale.set(1, 1, 0.72);
+      torso.position.y = 0.28;
       torso.castShadow = true;
-      g.add(torso);
+      body.add(torso);
 
-      // Dorsal neon spine strip
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.38, 0.02), glowMat);
-      stripe.position.set(0, hipY + 0.3, -0.115);
-      g.add(stripe);
+      stripe.position.set(0, 0.3, -0.115);
+      body.add(stripe);
+
+      if (glowTrim) {
+        [-1, 1].forEach((s) => {
+          const st = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.4, 0.02), glowMat);
+          st.position.set(s * 0.085, 0.3, 0.112);
+          body.add(st);
+        });
+      }
 
       if (longCoat && !sitting) {
         const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.26, 0.5, 12), coatMat);
@@ -931,69 +925,67 @@
         g.add(skirt);
       }
 
-      if (collar) {
-        // High raised cyberpunk trench collar around neck
-        const colGeo = new THREE.CylinderGeometry(0.14, 0.155, 0.14, 14, 1, true, -Math.PI * 0.82, Math.PI * 1.64);
-        const colMesh = new THREE.Mesh(colGeo, coatMat);
-        colMesh.position.set(0, hipY + 0.60, 0.01);
-        colMesh.rotation.y = Math.PI; // Opening at front throat
-        g.add(colMesh);
-      }
-
       if (apron) {
         const ap = new THREE.Mesh(
           new THREE.BoxGeometry(0.26, 0.42, 0.02),
           new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.9 })
         );
-        ap.position.set(0, hipY + 0.2, 0.115);
-        g.add(ap);
+        ap.position.set(0, 0.2, 0.115);
+        body.add(ap);
       }
 
-      // Cranial assembly (headGroup) - strictly parent all headgear to headGroup
-      const headGroup = new THREE.Group();
-      headGroup.position.y = hipY + 0.7;
-      g.add(headGroup);
+      if (scarf !== null) {
+        const sm = new THREE.MeshStandardMaterial({ color: scarf, roughness: 0.85 });
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.04, 6, 14), sm);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = 0.58;
+        const tail = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.24, 0.03), sm);
+        tail.position.set(0.09, 0.44, 0.13);
+        body.add(ring, tail);
+      }
+
+      const head = new THREE.Group();
+      head.position.y = 0.7;
+      body.add(head);
 
       if (hood) {
-        const hd = new THREE.Mesh(new THREE.SphereGeometry(0.138, 14, 10), coatMat);
-        hd.scale.set(1.06, 1.08, 1.08);
+        const hd = new THREE.Mesh(new THREE.SphereGeometry(0.135, 14, 10), coatMat);
+        hd.scale.set(1, 1.05, 1.05);
         hd.position.z = -0.02;
-        headGroup.add(hd);
-        const face = new THREE.Mesh(new THREE.SphereGeometry(0.105, 12, 8), darkMat);
+        head.add(hd);
+        const face = new THREE.Mesh(new THREE.SphereGeometry(0.105, 12, 8), blackMat);
         face.position.z = 0.045;
-        headGroup.add(face);
+        head.add(face);
       } else {
-        const hd = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 10), skinMat);
-        headGroup.add(hd);
-        const hair = new THREE.Mesh(
+        head.add(new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 10), skinMat));
+        const hairCap = new THREE.Mesh(
           new THREE.SphereGeometry(0.125, 14, 8, 0, Math.PI * 2, 0, Math.PI / 1.9),
           darkMat
         );
-        hair.position.set(0, 0.01, -0.01);
-        headGroup.add(hair);
+        hairCap.position.set(0, 0.01, -0.01);
+        head.add(hairCap);
         [-0.04, 0.04].forEach((ex) => {
-          const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.01), darkMat);
+          const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.01), blackMat);
           eye.position.set(ex, 0.0, 0.112);
-          headGroup.add(eye);
+          head.add(eye);
         });
-      }
-
-      if (beret) {
-        // Chic dark cyberpunk beret / hat strictly childed to headGroup
-        const hatGeo = new THREE.CylinderGeometry(0.145, 0.16, 0.05, 14);
-        const hatMesh = new THREE.Mesh(
-          hatGeo,
-          new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85 })
-        );
-        hatMesh.position.set(0, 0.11, -0.01);
-        hatMesh.rotation.z = -0.08;
-        headGroup.add(hatMesh);
       }
 
       if (visor) {
         const v = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.04, 0.04), glowMat);
         v.position.set(0, 0.01, 0.14);
-        headGroup.add(v);
+        head.add(v);
+      }
+
+      if (mask) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.07, 0.06), blackMat);
+        m.position.set(0, -0.06, 0.125);
+        head.add(m);
+        [-0.03, 0.03].forEach((x) => {
+          const vent = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.012, 0.01), glowMat);
+          vent.position.set(x, -0.06, 0.158);
+          head.add(vent);
+        });
       }
 
       if (headband) {
@@ -1003,73 +995,85 @@
         );
         band.rotation.x = Math.PI / 2;
         band.position.y = 0.045;
-        headGroup.add(band);
+        head.add(band);
       }
 
-      // Upper limbs: shoulder and forearm kinematics
+      if (hat === 'kasa') { // коническая соломенная шляпа с неоновым ободком
+        const kasa = new THREE.Mesh(
+          new THREE.ConeGeometry(0.3, 0.14, 14),
+          new THREE.MeshStandardMaterial({ color: 0xcaa86a, roughness: 0.9 })
+        );
+        kasa.position.y = 0.13;
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.01, 6, 24), glowMat);
+        rim.rotation.x = Math.PI / 2;
+        rim.position.y = 0.065;
+        head.add(kasa, rim);
+      } else if (hat === 'beanie') {
+        const hm = new THREE.MeshStandardMaterial({ color: hatColor, roughness: 0.9 });
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(0.145, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), hm);
+        dome.position.y = 0.04;
+        const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.025, 6, 16), hm);
+        cuff.rotation.x = Math.PI / 2;
+        cuff.position.y = 0.045;
+        head.add(dome, cuff);
+      } else if (hat === 'cap') {
+        const hm = new THREE.MeshStandardMaterial({ color: hatColor, roughness: 0.8 });
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), hm);
+        dome.position.y = 0.03;
+        const brim = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.015, 0.12), hm);
+        brim.position.set(0, 0.035, 0.14);
+        head.add(dome, brim);
+      } else if (hat === 'fedora') {
+        const hm = new THREE.MeshStandardMaterial({ color: hatColor, roughness: 0.8 });
+        const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.115, 0.1, 12), hm);
+        crown.position.y = 0.11;
+        const brimF = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.012, 16), hm);
+        brimF.position.y = 0.06;
+        head.add(crown, brimF);
+      }
+
+      // Руки (плечо -> предплечье), крепятся к верху тела
       const makeArm = (side) => {
         const upper = limb(0.045, 0.2, coatMat);
-        upper.position.set(side * 0.2, hipY + 0.5, 0);
+        upper.position.set(side * 0.2, 0.5, 0);
         const fore = limb(0.04, 0.2, coatMat);
         fore.position.y = -upper.userData.total;
         upper.add(fore);
-        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), handMat);
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), skinMat);
         hand.position.y = -fore.userData.total;
         fore.add(hand);
-        g.add(upper);
-        return { upper, fore, hand };
+        body.add(upper);
+        return { upper, fore };
       };
       const armL = makeArm(-1);
       const armR = makeArm(1);
 
-      // Lower limbs: hip, thigh, and calf joints
       const makeLeg = (side) => {
-        const legMat = pantsMat ? pantsMat : coatMat;
-        const thigh = limb(0.065, 0.24, legMat);
+        const thigh = limb(0.065, 0.24, coatMat);
         thigh.position.set(side * 0.085, hipY, 0);
-
-        if (cargoPockets) {
-          const pocket = new THREE.Mesh(
-            new THREE.BoxGeometry(0.04, 0.11, 0.11),
-            legMat
-          );
-          pocket.position.set(side * 0.05, -0.11, 0);
-          thigh.add(pocket);
-        }
-
-        const shin = limb(0.055, 0.24, legMat);
+        const shin = limb(0.055, 0.24, blackMat);
         shin.position.y = -thigh.userData.total;
         thigh.add(shin);
-
-        const footMat = boots
-          ? new THREE.MeshStandardMaterial({ color: boots, roughness: 0.9 })
-          : darkMat;
-        const footW = boots ? 0.11 : 0.09;
-        const footH = boots ? 0.07 : 0.05;
-        const footD = boots ? 0.20 : 0.17;
-        const foot = new THREE.Mesh(new THREE.BoxGeometry(footW, footH, footD), footMat);
-        foot.position.set(0, -shin.userData.total + footH / 2, 0.04);
+        const foot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.05, 0.17), blackMat);
+        foot.position.set(0, -shin.userData.total + 0.01, 0.04);
         shin.add(foot);
         g.add(thigh);
-        return { thigh, shin, foot };
+        return { thigh, shin };
       };
       const legL = makeLeg(-1);
       const legR = makeLeg(1);
 
       let chopsticks = null;
-
       if (sitting) {
-        // Seated pose kinematics: forward hips, perpendicular shins
         [legL, legR].forEach((l) => {
           l.thigh.rotation.x = -Math.PI / 2;
           l.shin.rotation.x = Math.PI / 2;
         });
-
+        armL.upper.rotation.x = -0.5;
+        armL.fore.rotation.x = -0.9;
+        armR.upper.rotation.x = -0.7;
+        armR.fore.rotation.x = -1.3;
         if (eating) {
-          armL.upper.rotation.x = -0.5;
-          armL.fore.rotation.x = -0.9;
-          armR.upper.rotation.x = -0.7;
-          armR.fore.rotation.x = -1.3;
           chopsticks = new THREE.Mesh(
             new THREE.CylinderGeometry(0.006, 0.006, 0.24, 4),
             new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.6 })
@@ -1078,12 +1082,6 @@
           chopsticks.position.y = -armR.fore.userData.total;
           chopsticks.rotation.x = 1.2;
           armR.fore.add(chopsticks);
-        } else {
-          // Relaxed seated pose: hands resting on thighs / knees
-          armL.upper.rotation.set(-0.35, 0, 0.10);
-          armL.fore.rotation.set(-0.85, 0, 0);
-          armR.upper.rotation.set(-0.35, 0, -0.10);
-          armR.fore.rotation.set(-0.85, 0, 0);
         }
       } else {
         armL.upper.rotation.z = 0.08;
@@ -1092,22 +1090,20 @@
         armR.fore.rotation.x = -0.25;
       }
 
-      // Procedural micro-animations: thoracic breathing, cervical yaw, chopstick articulation
-      g.userData.phase = phase;
+      g.userData.headYaw = 0;
+      g.userData.headPitch = 0;
       g.userData.update = (t) => {
         torso.scale.y = 1 + Math.sin(t * 1.6 + phase) * 0.015;
-        headGroup.rotation.y = Math.sin(t * 0.4 + phase) * 0.15 + (g.userData.headYaw || 0);
-        headGroup.rotation.x = Math.sin(t * 0.55 + phase) * 0.04 + (g.userData.headPitch || 0);
+        head.rotation.y = Math.sin(t * 0.4 + phase) * 0.15 + g.userData.headYaw;
+        head.rotation.x = Math.sin(t * 0.55 + phase) * 0.04 + g.userData.headPitch;
         if (sitting && eating) {
           const lift = Math.pow(Math.max(0, Math.sin(t * 1.2 + phase)), 2);
           armR.fore.rotation.x = -1.3 + lift * 0.45;
         }
       };
-
+      g.userData.parts = { torso, head, body, armL, armR, legL, legR };
       g.userData.hipY = hipY;
       g.userData.stripe = stripe;
-      g.userData.parts = { torso, head: headGroup, armL, armR, legL, legR };
-
       return g;
     }
 
@@ -1136,25 +1132,33 @@
       return t;
     }
 
+    function bodyOf(citizen) {
+      return citizen.userData.parts ? citizen.userData.parts.body : citizen;
+    }
+
     function addBackEmblem(citizen, glyph = '侍', color = '#ff1744') {
       if (citizen.userData.stripe) citizen.userData.stripe.visible = false;
-      const hipY = citizen.userData.hipY ?? 0.76;
       const patch = new THREE.Mesh(
         new THREE.PlaneGeometry(0.26, 0.26),
-        new THREE.MeshBasicMaterial({
-          map: createEmblemTexture(glyph, color),
-          transparent: true,
-          toneMapped: false
-        })
+        new THREE.MeshBasicMaterial({ map: createEmblemTexture(glyph, color), transparent: true, toneMapped: false })
       );
-      patch.position.set(0, hipY + 0.3, -0.113);
-      patch.rotation.y = Math.PI; // Orient towards -Z (dorsal)
-      citizen.add(patch);
+      patch.position.set(0, 0.3, -0.113);
+      patch.rotation.y = Math.PI;
+      bodyOf(citizen).add(patch);
+    }
+
+    function addBackpack(citizen, color = 0x1f2937) {
+      if (citizen.userData.stripe) citizen.userData.stripe.visible = false;
+      const bag = new THREE.Mesh(
+        new THREE.BoxGeometry(0.24, 0.3, 0.12),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.7 })
+      );
+      bag.position.set(0, 0.3, -0.19);
+      bodyOf(citizen).add(bag);
     }
 
     function addUmbrella(citizen, color = 0xff007f) {
-      const hipY = citizen.userData.hipY ?? 0.76;
-      const g = new THREE.Group();
+      const u = new THREE.Group();
       const canopy = new THREE.Mesh(
         new THREE.ConeGeometry(0.5, 0.2, 12, 1, true),
         new THREE.MeshStandardMaterial({
@@ -1165,10 +1169,10 @@
       canopy.position.y = 0.18;
       const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.6, 6), MAT.metalPipe);
       handle.position.y = -0.1;
-      g.add(canopy, handle);
-      g.position.set(0, hipY + 0.95, -0.12);
-      g.rotation.z = 0.15;
-      citizen.add(g);
+      u.add(canopy, handle);
+      u.position.set(0, 0.95, -0.12);
+      u.rotation.z = 0.15;
+      bodyOf(citizen).add(u);
     }
 
     // ============================================================
@@ -1187,17 +1191,6 @@
       const c = createCitizen({ ...OUTFITS[i % OUTFITS.length], ...extra });
       c.scale.setScalar(0.94 + Math.random() * 0.12); // Height variation variance
       return c;
-    }
-
-    function addBackpack(citizen, color = 0x1f2937) {
-      const hipY = citizen.userData.hipY ?? 0.76;
-      if (citizen.userData.stripe) citizen.userData.stripe.visible = false;
-      const bag = new THREE.Mesh(
-        new THREE.BoxGeometry(0.24, 0.3, 0.12),
-        new THREE.MeshStandardMaterial({ color, roughness: 0.7 })
-      );
-      bag.position.set(0, hipY + 0.3, -0.19);
-      citizen.add(bag);
     }
 
     function poseLeanSmoke(c) {
@@ -1410,12 +1403,12 @@
         add(new THREE.CylinderGeometry(0.008, 0.008, 0.3, 4), MAT.metalPipe, x, 2.2, z);
       });
 
-      // Counter chef: facing patrons (+Z)
+      // Counter chef: animated walking chef (stirring broth & prepping bowls)
       const cook = createCitizen({
         coat: 0x1f2937, trim: 0xffaa00, hood: false, visor: false, headband: true, apron: true
       });
       cook.position.set(0.2, 0.06, 1.8);
-      animateCook(cook);
+      animateCookWalking(cook);
       pg.add(cook);
       citizens.push(cook);
 
@@ -3380,44 +3373,52 @@
       makeSlideshow(faceMat, [faceMat.map, createBillboardAdTexture(1), createBillboardAdTexture(2)], 6);
     }
 
-    function addBillboardHologram(g) {
+    function addBigBrotherHologram(g) {
       const holo = new THREE.Group();
-      holo.position.set(0, 3.3 + 1.05 + 0.12, 0); // Above upper edge of billboard
+      holo.position.set(0, 3.3 + 1.05 + 0.12, 0);
 
       const base = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.3), MAT.metalPipe);
       base.position.y = 0.05;
-
-      const beamGeo = new THREE.ConeGeometry(0.55, 1.3, 20, 1, true);
-      beamGeo.rotateX(Math.PI); // Tip down: beam radiates upward from projector
+      const beamGeo = new THREE.ConeGeometry(0.5, 0.9, 20, 1, true);
+      beamGeo.rotateX(Math.PI);
       const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({
-        color: 0x00f3ff, transparent: true, opacity: 0.1,
+        color: 0x00f3ff, transparent: true, opacity: 0.08,
         blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
       }));
-      beam.position.y = 0.75;
+      beam.position.y = 0.55;
 
-      const canGroup = new THREE.Group();
-      canGroup.position.y = 0.85;
-      const wireMat = new THREE.MeshBasicMaterial({
-        color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.9, toneMapped: false
+      const head = new THREE.Group();
+      head.position.y = 1.05;
+      const wire = new THREE.MeshBasicMaterial({
+        color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.85, toneMapped: false
       });
-      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.62, 12, 5, true), wireMat);
-      const ringMat = new THREE.MeshBasicMaterial({ color: 0xff007f, toneMapped: false });
-      const capTop = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.012, 6, 16), ringMat);
-      capTop.rotation.x = Math.PI / 2;
-      capTop.position.y = 0.31;
-      const capBot = capTop.clone();
-      capBot.position.y = -0.31;
-      canGroup.add(can, capTop, capBot);
+      const skull = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 1), wire);
+      skull.scale.set(0.9, 1.1, 0.9);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff1744, toneMapped: false });
+      [-0.15, 0.15].forEach((x) => {
+        const e = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.04), eyeMat);
+        e.position.set(x, 0.08, 0.38);
+        head.add(e);
+      });
+      const smile = new THREE.Mesh(
+        new THREE.TorusGeometry(0.2, 0.018, 6, 20, Math.PI),
+        new THREE.MeshBasicMaterial({ color: 0xff007f, toneMapped: false })
+      );
+      smile.rotation.z = Math.PI; // дуга вниз = улыбка
+      smile.position.set(0, -0.08, 0.36);
+      head.add(skull, smile);
 
-      holo.add(base, beam, canGroup);
+      holo.add(base, beam, head);
       g.add(holo);
 
+      const wp = new THREE.Vector3();
       propUpdates.push((t) => {
-        canGroup.rotation.y = t * 1.3;
-        canGroup.position.y = 0.85 + Math.sin(t * 1.8) * 0.04;
-        const flick = Math.sin(t * 1.1) * Math.sin(t * 9.0) > 0.9 ? 0.4 : 1;
-        wireMat.opacity = 0.9 * flick;
-        beam.material.opacity = 0.1 * flick;
+        head.getWorldPosition(wp);
+        head.lookAt(camera.position.x, wp.y, camera.position.z); // всегда лицом к камере
+        head.position.y = 1.05 + Math.sin(t * 1.5) * 0.03;
+        const glitch = Math.sin(t * 1.1) * Math.sin(t * 9.0) > 0.92;
+        wire.opacity = glitch ? 0.3 : 0.85;
+        eyeMat.color.setHex(Math.sin(t * 2.0) > 0.95 ? 0xffffff : 0xff1744);
       });
     }
 
@@ -3449,7 +3450,7 @@
       g.add(board);
       addBillboardNeon(g);
       addBillboardAnimation(board, g);
-      addBillboardHologram(g);
+      addBigBrotherHologram(g);
       addBillboardScanline(g);
       [-1.3, 1.3].forEach((x) => {
         const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 3.1, 8), MAT.metalPipe);
@@ -3737,6 +3738,51 @@
       });
     }
 
+    function addBalconySmoker(hotel, deckY) {
+      const w = createCitizen({
+        coat: 0x6d28d9, trim: 0x00f3ff, longCoat: true, hood: false, visor: false,
+        hat: 'kasa', glowTrim: true, scarf: 0xf43f5e, hair: 0x1a1020
+      });
+      w.position.set(0.9, deckY + 0.04, -2.08);
+      w.rotation.y = Math.PI; // лицом к перилам (-Z)
+      hotel.add(w);
+      citizens.push(w);
+
+      const p = w.userData.parts;
+      p.body.rotation.x = 0.85;
+      w.userData.headPitch = -0.6;
+
+      const ember = new THREE.Mesh(
+        new THREE.SphereGeometry(0.014, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0xff6a00, toneMapped: false })
+      );
+      ember.position.set(0.07, -0.07, 0.14);
+      p.head.add(ember);
+
+      const REST_R1 = -1.71;
+      const REST_R2 = -0.71;
+      const SMOKE_R2 = -2.44;
+      const base = w.userData.update;
+      w.userData.update = (t) => {
+        base(t);
+        const c = t % 6.0; // затяжка раз в 6 секунд: поднять, подержать, опустить
+        const k = c < 0.7 ? c / 0.7 : c < 1.6 ? 1 : c < 2.3 ? 1 - (c - 1.6) / 0.7 : 0;
+        const e = k * k * (3 - 2 * k);
+        p.armL.upper.rotation.set(REST_R1, 0, -0.1);
+        p.armL.fore.rotation.x = REST_R2;
+        p.armR.upper.rotation.set(REST_R1, 0, 0.1);
+        p.armR.fore.rotation.x = REST_R2 + (SMOKE_R2 - REST_R2) * e;
+        const d = 0.35 + 0.65 * e;
+        ember.material.color.setRGB(d, 0.4 * d, 0);
+      };
+
+      // Дым над огоньком: точка рта в системе фигуры, переведённая в координаты острова
+      w.updateWorldMatrix(true, false);
+      const mouth = w.localToWorld(new THREE.Vector3(0.07, 1.152, 0.65));
+      islandGroup.worldToLocal(mouth);
+      createSteamEmitter(mouth, { count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1 });
+    }
+
     function buildHotelBack() {
       const g = hotelGroup;
       const add = (geo, mat, x, y, z) => {
@@ -3782,36 +3828,60 @@
         strut.rotation.x = 0.68;
       });
 
-      // Resident at balcony railing: stylish cyberpunk purple trench coat with raised collar, dark gloves
-      const smoker = createCitizen({
-        coat: 0x6b21a8, // Rich cyberpunk purple/violet trench
-        trim: 0x00f3ff,
-        longCoat: true,
-        collar: true,
-        gloves: 0x111827,
-        beret: true,
-        hood: false,
-        visor: false
+      addBalconySmoker(g, deckY);
+    }
+
+    function addSeatedSmoker(parent, x, z, rotY) {
+      const crate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 0.52, 0.5),
+        new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.6 })
+      );
+      crate.position.set(x, 0.26, z);
+      crate.rotation.y = rotY;
+      crate.castShadow = true;
+      parent.add(crate);
+
+      const m = createCitizen({
+        coat: 0x111827, trim: 0xff1744, sitting: true, hood: false, visor: false,
+        hat: 'beanie', hatColor: 0x7f1d1d, scarf: 0xdc2626, glowTrim: true, hair: 0x0a0a0a
       });
-      smoker.position.set(0.9, deckY + 0.04, -2.42);
-      smoker.rotation.y = Math.PI; // Facing balcony railing (-Z)
-      poseLeanSmoke(smoker);
-      g.add(smoker);
-      citizens.push(smoker);
+      m.position.set(x, 0, z);
+      m.rotation.y = rotY;
+      parent.add(m);
+      citizens.push(m);
+      addBackEmblem(m, '龍', '#ff1744');
+
+      const p = m.userData.parts;
+      p.body.rotation.x = 0.8;
+      m.userData.headPitch = -0.45;
 
       const ember = new THREE.Mesh(
         new THREE.SphereGeometry(0.014, 6, 6),
         new THREE.MeshBasicMaterial({ color: 0xff6a00, toneMapped: false })
       );
-      ember.position.set(0, -0.21, 0.02);
-      smoker.userData.parts.armR.fore.add(ember);
-      animateSmoker(smoker, ember, { isBalcony: true, period: 7.2, phase: 0 });
+      ember.position.set(0.07, -0.07, 0.14);
+      p.head.add(ember);
 
-      // Micro-steam plume above cigarette ember (world-space transform)
-      createSteamEmitter(
-        new THREE.Vector3(4.8 + 0.9 + 0.05, 0.25 + deckY + 0.04 + 1.25, -2.8 - 2.50),
-        { count: 8, height: 0.7, spread: 0.06, size: 0.22, color: 0xcbd5e1 }
-      );
+      const REST = { r1: -1.09, r2: -0.91 };  // локти на коленях, кисть свисает
+      const SMOKE = { r1: -1.55, r2: -2.17 }; // кисть у рта
+      const base = m.userData.update;
+      m.userData.update = (t) => {
+        base(t);
+        const c = t % 6.0;
+        const k = c < 0.7 ? c / 0.7 : c < 1.6 ? 1 : c < 2.3 ? 1 - (c - 1.6) / 0.7 : 0;
+        const e = k * k * (3 - 2 * k);
+        p.armL.upper.rotation.set(REST.r1, 0, -0.1);
+        p.armL.fore.rotation.x = REST.r2;
+        p.armR.upper.rotation.set(REST.r1 + (SMOKE.r1 - REST.r1) * e, 0, 0.1);
+        p.armR.fore.rotation.x = REST.r2 + (SMOKE.r2 - REST.r2) * e;
+        const d = 0.35 + 0.65 * e;
+        ember.material.color.setRGB(d, 0.4 * d, 0);
+      };
+
+      m.updateWorldMatrix(true, false);
+      const mouth = m.localToWorld(new THREE.Vector3(0.07, 1.01, 0.62));
+      islandGroup.worldToLocal(mouth);
+      createSteamEmitter(mouth, { count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1 });
     }
 
     function buildPagodaBack() {
@@ -3903,45 +3973,7 @@
       scooter.add(deliveryBox, deliveryStripe);
       g.add(scooter);
 
-      // Wooden cargo crate seat for backyard courier
-      const seatCrate = add(
-        new THREE.BoxGeometry(0.50, 0.38, 0.50),
-        darkWood,
-        -0.40, 0.19, -2.55
-      );
-
-      // Alley courier seated on crate: bulky dark bomber with hood, cargo pants, chunky dark boots
-      const alleySmoker = createCitizen({
-        coat: 0x1f2937,       // Dark bomber jacket
-        pants: 0x334155,      // Dark cargo pants
-        boots: 0x09090b,      // Chunky dark boots
-        gloves: 0x1f2937,     // Dark gloves
-        bomber: true,         // Voluminous bomber silhouette
-        hood: true,           // Bulky hood childed strictly to headGroup
-        cargoPockets: true,   // Cargo pockets on thighs
-        sitting: true,        // Sitting pose kinematics (knees bent 90°, feet on ground, hands on knees)
-        seatHeight: 0.44,     // Buttocks height seated on 0.38m crate
-        visor: false,
-        headband: false
-      });
-      alleySmoker.position.set(-0.40, 0, -2.55);
-      alleySmoker.rotation.y = Math.PI * 0.95; // Facing outward into the alley
-      g.add(alleySmoker);
-      citizens.push(alleySmoker);
-
-      const alleyEmber = new THREE.Mesh(
-        new THREE.SphereGeometry(0.014, 6, 6),
-        new THREE.MeshBasicMaterial({ color: 0xff6a00, toneMapped: false })
-      );
-      alleyEmber.position.set(0, -0.21, 0.02);
-      alleySmoker.userData.parts.armR.fore.add(alleyEmber);
-      animateSmoker(alleySmoker, alleyEmber, { isBalcony: false, period: 8.0, phase: 4.0 });
-
-      // Micro-steam plume rising from cigarette ember beneath the swaying lantern
-      createSteamEmitter(
-        new THREE.Vector3(-4.8 - 0.40 + 0.06, 0.25 + 0.44 + 0.70, -2.5 - 2.55 - 0.08),
-        { count: 8, height: 0.7, spread: 0.06, size: 0.22, color: 0xcbd5e1 }
-      );
+      addSeatedSmoker(g, -0.3, -3.2, Math.PI * 0.9);
 
       // Shinto roadside shrine with warm votive flame
       const shrine = new THREE.Group();
@@ -4070,12 +4102,12 @@
       const geo = new THREE.CircleGeometry(1, 28);
       geo.rotateX(-Math.PI / 2);
       [
-        [-3.75, 3.4, 0.65, 0.55, 0.27],  // Sidewalk near lantern and umbrella pedestrian
-        [1.2, 2.85, 1.0, 0.6, 0.03],     // Roadway before pedestrian crosswalk
-        [-1.2, -2.0, 1.0, 0.65, 0.03],   // Roadway near ramen counter
-        [5.6, -5.5, 0.8, 0.55, 0.27],    // Hotel service alley entrance
-        [-4.9, -5.2, 0.8, 0.5, 0.27],    // Pagoda back alley, under couple
-        [4.2, 4.2, 0.7, 0.5, 0.27]       // Transit bus stop shelter perimeter
+        [-4.6, 4.45, 0.6, 0.45, 0.27],  // левый тротуар у скамьи
+        [1.2, 2.85, 1.0, 0.6, 0.03],    // дорога перед зеброй
+        [-1.9, 2.4, 0.8, 0.5, 0.03],    // дорога у фонаря (отражение лампы)
+        [-1.2, -2.0, 1.0, 0.65, 0.03],  // дорога у лапшичной
+        [5.6, -5.5, 0.5, 0.5, 0.27],    // задний двор отеля, перед дверью
+        [4.2, 4.2, 0.7, 0.5, 0.27]      // у остановки
       ].forEach(([x, z, rx, rz, y]) => {
         const m = new THREE.Mesh(geo, puddleMat);
         m.position.set(x, y, z);
@@ -4103,6 +4135,294 @@
 
     function addStreetLampCone() {
       makeLightCone(bikeLampGroup, 0.85, 4.1, -0.6, { radius: 1.6, height: 4.0, color: 0xffa63d, opacity: 0.12 });
+    }
+
+    // ============================================================
+    // ПАТЧ 32 — ХОДЯЩИЕ ПЕРСОНАЖИ, ПОВАР ХОДИТ ПО КУХНЕ
+    // ============================================================
+    function makeWalker(citizen, waypoints, { speed = 0.6 } = {}) {
+      const parts = citizen.userData.parts;
+      const baseUpdate = citizen.userData.update;
+      let i = 0;
+      let waitLeft = waypoints[0].wait || 0;
+      let last = null;
+      let phase = 0;
+      citizen.position.x = waypoints[0].x;
+      citizen.position.z = waypoints[0].z;
+
+      const turnTo = (angle, k) => {
+        let d = angle - citizen.rotation.y;
+        d = Math.atan2(Math.sin(d), Math.cos(d)); // кратчайший поворот
+        citizen.rotation.y += d * k;
+      };
+
+      citizen.userData.update = (t) => {
+        if (baseUpdate) baseUpdate(t); // дыхание и покачивание головы
+        const dt = last === null ? 0 : Math.min(0.1, t - last);
+        last = t;
+
+        const wp = waypoints[i];
+        const dx = wp.x - citizen.position.x;
+        const dz = wp.z - citizen.position.z;
+        const dist = Math.hypot(dx, dz);
+        let moving = false;
+
+        if (dist > 0.04) {
+          moving = true;
+          const step = Math.min(dist, speed * dt);
+          citizen.position.x += (dx / dist) * step;
+          citizen.position.z += (dz / dist) * step;
+          turnTo(Math.atan2(dx, dz), Math.min(1, dt * 8));
+          phase += step * 7.0; // фаза шага зависит от пройденного пути, ноги не «скользят»
+        } else {
+          if (wp.face !== undefined) turnTo(wp.face, Math.min(1, dt * 6));
+          waitLeft -= dt;
+          if (wp.action) wp.action(t, parts);
+          if (waitLeft <= 0) {
+            i = (i + 1) % waypoints.length;
+            waitLeft = waypoints[i].wait || 0;
+          }
+        }
+
+        if (moving) {
+          if (parts.body) parts.body.rotation.x *= 0.85;
+          const s = Math.sin(phase);
+          parts.legL.thigh.rotation.x = -s * 0.5;
+          parts.legR.thigh.rotation.x = s * 0.5;
+          parts.legL.shin.rotation.x = Math.max(0, s) * 0.8;
+          parts.legR.shin.rotation.x = Math.max(0, -s) * 0.8;
+          parts.armL.upper.rotation.set(s * 0.4, 0, 0.08);
+          parts.armR.upper.rotation.set(-s * 0.4, 0, -0.08);
+          parts.armL.fore.rotation.x = -0.25;
+          parts.armR.fore.rotation.x = -0.25;
+        } else {
+          [parts.legL, parts.legR].forEach((l) => {
+            l.thigh.rotation.x *= 0.85;
+            l.shin.rotation.x *= 0.85;
+          });
+          if (!wp.action) {
+            [parts.armL, parts.armR].forEach((a) => {
+              a.upper.rotation.x *= 0.85;
+              a.fore.rotation.x += (-0.25 - a.fore.rotation.x) * 0.15;
+            });
+          }
+        }
+      };
+    }
+
+    function animateCookWalking(cook) {
+      const p = cook.userData.parts;
+      const stir = (t) => {
+        p.body.rotation.x = 0.25;
+        const s = Math.sin(t * 4.0);
+        const c = Math.cos(t * 4.0);
+        p.armL.upper.rotation.set(-0.95 - 0.06 * c, 0, -0.08);
+        p.armL.fore.rotation.x = -0.45 - 0.12 * s;
+        p.armR.upper.rotation.set(-0.95 + 0.06 * c, 0, 0.08);
+        p.armR.fore.rotation.x = -0.45 + 0.12 * s;
+      };
+      const prep = (t) => {
+        p.body.rotation.x = 0.35;
+        const s = Math.sin(t * 5.0);
+        p.armL.upper.rotation.set(-0.85 + 0.05 * s, 0, 0.05);
+        p.armL.fore.rotation.x = -0.6 + 0.12 * Math.sin(t * 5.0 + 1.0);
+        p.armR.upper.rotation.set(-0.85 - 0.05 * s, 0, -0.05);
+        p.armR.fore.rotation.x = -0.6 + 0.12 * Math.sin(t * 4.3 + 2.0);
+      };
+      makeWalker(cook, [
+        { x: -1.0, z: 1.55, wait: 3.5, face: Math.PI, action: stir }, // у кастрюли (лицом к плите)
+        { x: 0.2, z: 1.65, wait: 4.5, face: 0, action: prep }         // у стойки (лицом к клиентам)
+      ], { speed: 0.5 });
+    }
+
+    // ============================================================
+    // ПАТЧ 34 — СИЛУЭТ В ОКНЕ (танцует или просто стоит)
+    // ============================================================
+    function drawSilhouette(ctx, t, mode) {
+      ctx.clearRect(0, 0, 128, 128);
+      ctx.strokeStyle = '#0a0a10';
+      ctx.fillStyle = '#0a0a10';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 9;
+      const dance = mode === 'dance';
+      const sway = dance ? Math.sin(t * 5) : Math.sin(t * 0.8) * 0.2;
+      const beat = dance ? Math.sin(t * 10) : 0;
+      const neck = { x: 64 + sway * 6, y: 46 };
+      const hip = { x: 64 - sway * 6, y: 82 + Math.abs(beat) * 4 };
+
+      ctx.beginPath();
+      ctx.arc(neck.x, 33 + Math.abs(beat) * 2, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(neck.x, neck.y);
+      ctx.lineTo(hip.x, hip.y);
+      ctx.stroke();
+
+      const handL = dance ? { x: neck.x - 30, y: 22 + sway * 16 } : { x: neck.x - 14, y: 76 };
+      const handR = dance ? { x: neck.x + 30, y: 22 - sway * 16 } : { x: neck.x + 14, y: 76 };
+      [handL, handR].forEach((h) => {
+        ctx.beginPath();
+        ctx.moveTo(neck.x, neck.y + 4);
+        ctx.lineTo(h.x, h.y);
+        ctx.stroke();
+      });
+
+      const step = dance ? Math.cos(t * 5) * 10 : 0;
+      ctx.beginPath();
+      ctx.moveTo(hip.x, hip.y);
+      ctx.lineTo(hip.x - 14 + step, 122);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(hip.x, hip.y);
+      ctx.lineTo(hip.x + 14 - step, 122);
+      ctx.stroke();
+    }
+
+    function addWindowSilhouette(parent, x, y, z, w, h, mode = 'dance', rotY = 0) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({
+          map: tex, transparent: true, depthWrite: false,
+          polygonOffset: true, polygonOffsetFactor: -2
+        })
+      );
+      mesh.position.set(x, y, z);
+      mesh.rotation.y = rotY;
+      parent.add(mesh);
+
+      let lastDraw = -1;
+      propUpdates.push((t) => {
+        if (t - lastDraw < 0.125) return;
+        lastDraw = t;
+        drawSilhouette(ctx, t, mode);
+        tex.needsUpdate = true;
+      });
+    }
+
+    // ============================================================
+    // ПАТЧ 35 — АДАПТИВНЫЙ УГОЛ ОБЗОРА (запись вертикального видео с телефона)
+    // ============================================================
+    function applyResponsiveFov() {
+      const a = camera.aspect;
+      const wide = 16 / 9;
+      if (a >= wide) {
+        camera.fov = 36;
+      } else {
+        const baseH = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(36) / 2) * wide);
+        const v = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(baseH / 2) / a));
+        camera.fov = Math.min(70, v);
+      }
+      camera.updateProjectionMatrix();
+    }
+
+    // ============================================================
+    // ПАТЧ 36 — ГЛАВНОЕ УСКОРЕНИЕ: СКЛЕЙКА СТАТИЧНЫХ МЕШЕЙ
+    // ============================================================
+    const MERGE_ENABLED = !location.search.includes('nomerge');
+    const _mergeSnaps = [];
+    const _mergeTimes = [2.0, 5.0, 9.0];
+    let _mergeDone = !MERGE_ENABLED;
+    const _mInv = new THREE.Matrix4();
+    const _mRel = new THREE.Matrix4();
+
+    function snapshotRelativeMatrices() {
+      islandGroup.updateMatrixWorld(true);
+      _mInv.copy(islandGroup.matrixWorld).invert();
+      const snap = new Map();
+      islandGroup.traverse((o) => {
+        if (!o.isMesh) return;
+        _mRel.multiplyMatrices(_mInv, o.matrixWorld);
+        snap.set(o, _mRel.elements.slice());
+      });
+      return snap;
+    }
+
+    function sameMatrix(a, b) {
+      for (let i = 0; i < 16; i++) if (Math.abs(a[i] - b[i]) > 1e-5) return false;
+      return true;
+    }
+
+    function mergeStaticMeshes(snaps) {
+      const dynamic = new Set([...citizens, drone1, drone2]);
+      const blocked = (o) => {
+        for (let p = o; p && p !== islandGroup; p = p.parent) {
+          if (dynamic.has(p) || !p.visible) return true;
+        }
+        return false;
+      };
+
+      islandGroup.updateMatrixWorld(true);
+      _mInv.copy(islandGroup.matrixWorld).invert();
+      const buckets = new Map();
+
+      islandGroup.traverse((o) => {
+        if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh) return;
+        const mat = o.material;
+        if (Array.isArray(mat) || mat.transparent || o.userData.noMerge) return;
+        if (!o.geometry || !o.geometry.attributes.position || blocked(o)) return;
+        const first = snaps[0].get(o);
+        if (!first) return;
+        for (let s = 1; s < snaps.length; s++) {
+          const m = snaps[s].get(o);
+          if (!m || !sameMatrix(first, m)) return; // двигался, не склеиваем
+        }
+        _mRel.multiplyMatrices(_mInv, o.matrixWorld);
+        if (_mRel.determinant() < 0) return; // зеркальные меши пропускаем
+        const key = mat.uuid + '|' + o.castShadow + '|' + o.receiveShadow;
+        let b = buckets.get(key);
+        if (!b) {
+          b = { mat, cast: o.castShadow, recv: o.receiveShadow, items: [] };
+          buckets.set(key, b);
+        }
+        b.items.push({ mesh: o, matrix: _mRel.clone() });
+      });
+
+      let merged = 0;
+      let created = 0;
+      buckets.forEach((b) => {
+        if (b.items.length < 2) return;
+        const geos = b.items.map(({ mesh, matrix }) => {
+          const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+          Object.keys(g.attributes).forEach((n) => {
+            if (n !== 'position' && n !== 'normal' && n !== 'uv') g.deleteAttribute(n);
+          });
+          if (!g.attributes.normal) g.computeVertexNormals();
+          if (!g.attributes.uv) {
+            g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+          }
+          g.clearGroups();
+          g.applyMatrix4(matrix);
+          return g;
+        });
+        const geo = mergeGeometries(geos, false);
+        geos.forEach((g) => g.dispose());
+        if (!geo) return; // не совпали атрибуты: оставляем как есть
+        const mesh = new THREE.Mesh(geo, b.mat);
+        mesh.castShadow = b.cast;
+        mesh.receiveShadow = b.recv;
+        mesh.matrixAutoUpdate = false;
+        islandGroup.add(mesh);
+        b.items.forEach(({ mesh: m }) => m.parent.remove(m));
+        merged += b.items.length;
+        created++;
+      });
+      console.info('[merge] ' + merged + ' мешей -> ' + created);
+    }
+
+    function mergeStep(time) {
+      if (_mergeDone) return;
+      if (_mergeSnaps.length < _mergeTimes.length) {
+        if (time >= _mergeTimes[_mergeSnaps.length]) _mergeSnaps.push(snapshotRelativeMatrices());
+      } else if (time >= 11) {
+        mergeStaticMeshes(_mergeSnaps);
+        _mergeDone = true;
+      }
     }
 
     // Call builders before animate
@@ -4278,7 +4598,7 @@
         autoOrbitAngle += delta * 0.16;
 
         // Radius modulates between 15.5 (close zoom on signs) and 31.0 (grand overview)
-        const curRadius = 23.0 + Math.sin(time * 0.11) * 6.0 + Math.cos(time * 0.23) * 2.5;
+        const curRadius = (23.0 + Math.sin(time * 0.11) * 6.0 + Math.cos(time * 0.23) * 2.5) * (camera.aspect < 1 ? 1.3 : 1);
 
         // Height modulates between 9.5 (low dramatic angle) and 20.0 (high isometric)
         const curHeight = 14.5 + Math.sin(time * 0.16) * 4.5 + Math.cos(time * 0.08) * 2.0;
@@ -4464,6 +4784,7 @@
 
       // Micro-animations for Urban Props & Steam Emitters (Patches 10-13)
       propUpdates.forEach((fn) => fn(time));
+      mergeStep(time);
       steamEmitters.forEach((e) => e.update(delta));
 
       // Spatial 3D Audio & Thunder/Lightning (Patch 9)
@@ -4523,7 +4844,7 @@
       const w = window.innerWidth;
       const h = window.innerHeight;
       camera.aspect = w / h;
-      camera.updateProjectionMatrix();
+      applyResponsiveFov();
       setQuality(quality);
     });
 
@@ -4599,6 +4920,23 @@
       buildAudioExtras();
     }
 
+    function setupAutoHideAudioButton(btn) {
+      let timer = null;
+      btn.style.transition = 'opacity 0.6s';
+      const show = () => {
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          btn.style.opacity = '0';
+          btn.style.pointerEvents = 'none';
+        }, 4000);
+      };
+      window.addEventListener('pointerdown', show);
+      window.addEventListener('pointermove', show);
+      show();
+    }
+
     const soundBtn = document.createElement('button');
     soundBtn.textContent = '🔇 Audio';
     Object.assign(soundBtn.style, {
@@ -4616,6 +4954,7 @@
       backdropFilter: 'blur(6px)'
     });
     document.body.appendChild(soundBtn);
+    setupAutoHideAudioButton(soundBtn);
 
     soundBtn.addEventListener('click', async () => {
       if (!audioCtx) buildAudio();
