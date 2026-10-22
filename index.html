@@ -2857,6 +2857,7 @@
 
       const base = new THREE.Color(color).multiplyScalar(0.3);
       const emitter = {
+        points,
         update(dt) {
           for (let i = 0; i < count; i++) {
             const d = data[i];
@@ -2895,16 +2896,23 @@
       return _coneTex;
     }
 
-    function makeLightCone(parent, x, topY, z, { radius = 0.9, height = 1.9, color = 0xffb703, opacity = 0.18 } = {}) {
-      const mat = new THREE.MeshBasicMaterial({
-        map: getConeFadeTex(), color, transparent: true, opacity,
-        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-        toneMapped: false, fog: false
+    function makeLightCone(parent, x, topY, z, { radius = 0.7, height = 1.9, color = 0xffb703, opacity = 0.09 } = {}) {
+      const grp = new THREE.Group();
+      const meshes = [];
+      [[1.0, 0.45], [0.66, 0.35], [0.36, 0.3]].forEach(([rk, ok]) => {
+        const mat = new THREE.MeshBasicMaterial({
+          map: getConeFadeTex(), color, transparent: true, opacity: opacity * ok,
+          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+          toneMapped: false, fog: false
+        });
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(radius * rk, height, 24, 1, true), mat);
+        meshes.push({ mat, k: ok });
+        grp.add(cone);
       });
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, height, 24, 1, true), mat);
-      cone.position.set(x, topY - height / 2, z);
-      parent.add(cone);
-      return cone;
+      grp.position.set(x, topY - height / 2, z);
+      grp.userData.setOpacity = (v) => meshes.forEach(({ mat, k }) => { mat.opacity = v * k; });
+      parent.add(grp);
+      return grp;
     }
 
     function creepyFlicker(t, seed = 0) {
@@ -2928,7 +2936,7 @@
       lens.position.set(x, y - 0.07, z);
       parent.add(lens);
       const decal = glowDecal(parent, decalX, decalZ, 4.6, decalColor, 0.85);
-      const cone = makeLightCone(parent, x, y - 0.08, z - 0.4, { radius: 1.0, height: y - 0.08, color, opacity: 0.2 });
+      const cone = makeLightCone(parent, x, y - 0.08, z - 0.4, { radius: 0.8, height: y - 0.08, color, opacity: 0.1 });
 
       const onColor = new THREE.Color(color);
       const offColor = onColor.clone().multiplyScalar(0.18);
@@ -2936,7 +2944,7 @@
         const f = creepyFlicker(t, seed);
         lensMat.color.copy(offColor).lerp(onColor, f);
         decal.material.opacity = 0.85 * f;
-        cone.material.opacity = 0.2 * f;
+        cone.userData.setOpacity(0.1 * f);
       });
     }
 
@@ -3738,49 +3746,77 @@
       });
     }
 
+    function attachCigarette(citizen, side = 'R') {
+      const p = citizen.userData.parts;
+      const arm = side === 'R' ? p.armR : p.armL;
+      const cig = new THREE.Group();
+      cig.position.y = -arm.fore.userData.total; // в кисти
+      const stick = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.008, 0.008, 0.09, 6),
+        new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.8 })
+      );
+      stick.position.y = -0.045;
+      const ember = new THREE.Mesh(
+        new THREE.SphereGeometry(0.014, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0xff6a00, toneMapped: false })
+      );
+      ember.position.y = -0.09;
+      cig.add(stick, ember);
+      arm.fore.add(cig);
+      return { cig, ember };
+    }
+
+    function followWithSmoke(ember, emitter) {
+      const v = new THREE.Vector3();
+      propUpdates.push(() => {
+        ember.getWorldPosition(v);
+        islandGroup.worldToLocal(v);
+        emitter.points.position.copy(v);
+      });
+    }
+
+    function puffCurve(t) {
+      const c = t % 6.0; // затяжка раз в 6 секунд: поднять, подержать, опустить
+      const k = c < 0.7 ? c / 0.7 : c < 1.6 ? 1 : c < 2.3 ? 1 - (c - 1.6) / 0.7 : 0;
+      return k * k * (3 - 2 * k);
+    }
+
     function addBalconySmoker(hotel, deckY) {
       const w = createCitizen({
         coat: 0x6d28d9, trim: 0x00f3ff, longCoat: true, hood: false, visor: false,
         hat: 'kasa', glowTrim: true, scarf: 0xf43f5e, hair: 0x1a1020
       });
       w.position.set(0.9, deckY + 0.04, -2.08);
-      w.rotation.y = Math.PI; // лицом к перилам (-Z)
+      w.rotation.y = Math.PI;
       hotel.add(w);
       citizens.push(w);
 
       const p = w.userData.parts;
       p.body.rotation.x = 0.85;
       w.userData.headPitch = -0.6;
-
-      const ember = new THREE.Mesh(
-        new THREE.SphereGeometry(0.014, 6, 6),
-        new THREE.MeshBasicMaterial({ color: 0xff6a00, toneMapped: false })
-      );
-      ember.position.set(0.07, -0.07, 0.14);
-      p.head.add(ember);
+      const { cig, ember } = attachCigarette(w, 'R');
 
       const REST_R1 = -1.71;
       const REST_R2 = -0.71;
       const SMOKE_R2 = -2.44;
+      const CIG_REL = 1.4; // поворот сигареты в кисти на затяжке
       const base = w.userData.update;
       w.userData.update = (t) => {
         base(t);
-        const c = t % 6.0; // затяжка раз в 6 секунд: поднять, подержать, опустить
-        const k = c < 0.7 ? c / 0.7 : c < 1.6 ? 1 : c < 2.3 ? 1 - (c - 1.6) / 0.7 : 0;
-        const e = k * k * (3 - 2 * k);
+        const e = puffCurve(t);
         p.armL.upper.rotation.set(REST_R1, 0, -0.1);
         p.armL.fore.rotation.x = REST_R2;
         p.armR.upper.rotation.set(REST_R1, 0, 0.1);
         p.armR.fore.rotation.x = REST_R2 + (SMOKE_R2 - REST_R2) * e;
+        cig.rotation.x = CIG_REL * e;
         const d = 0.35 + 0.65 * e;
         ember.material.color.setRGB(d, 0.4 * d, 0);
       };
 
-      // Дым над огоньком: точка рта в системе фигуры, переведённая в координаты острова
-      w.updateWorldMatrix(true, false);
-      const mouth = w.localToWorld(new THREE.Vector3(0.07, 1.152, 0.65));
-      islandGroup.worldToLocal(mouth);
-      createSteamEmitter(mouth, { count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1 });
+      const smoke = createSteamEmitter(new THREE.Vector3(), {
+        count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1
+      });
+      followWithSmoke(ember, smoke);
     }
 
     function buildHotelBack() {
@@ -3854,34 +3890,28 @@
       const p = m.userData.parts;
       p.body.rotation.x = 0.8;
       m.userData.headPitch = -0.45;
+      const { cig, ember } = attachCigarette(m, 'R');
 
-      const ember = new THREE.Mesh(
-        new THREE.SphereGeometry(0.014, 6, 6),
-        new THREE.MeshBasicMaterial({ color: 0xff6a00, toneMapped: false })
-      );
-      ember.position.set(0.07, -0.07, 0.14);
-      p.head.add(ember);
-
-      const REST = { r1: -1.09, r2: -0.91 };  // локти на коленях, кисть свисает
-      const SMOKE = { r1: -1.55, r2: -2.17 }; // кисть у рта
+      const REST = { r1: -1.09, r2: -0.91 };
+      const SMOKE = { r1: -1.55, r2: -2.17 };
+      const CIG_REL = 1.02;
       const base = m.userData.update;
       m.userData.update = (t) => {
         base(t);
-        const c = t % 6.0;
-        const k = c < 0.7 ? c / 0.7 : c < 1.6 ? 1 : c < 2.3 ? 1 - (c - 1.6) / 0.7 : 0;
-        const e = k * k * (3 - 2 * k);
+        const e = puffCurve(t);
         p.armL.upper.rotation.set(REST.r1, 0, -0.1);
         p.armL.fore.rotation.x = REST.r2;
         p.armR.upper.rotation.set(REST.r1 + (SMOKE.r1 - REST.r1) * e, 0, 0.1);
         p.armR.fore.rotation.x = REST.r2 + (SMOKE.r2 - REST.r2) * e;
+        cig.rotation.x = CIG_REL * e;
         const d = 0.35 + 0.65 * e;
         ember.material.color.setRGB(d, 0.4 * d, 0);
       };
 
-      m.updateWorldMatrix(true, false);
-      const mouth = m.localToWorld(new THREE.Vector3(0.07, 1.01, 0.62));
-      islandGroup.worldToLocal(mouth);
-      createSteamEmitter(mouth, { count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1 });
+      const smoke = createSteamEmitter(new THREE.Vector3(), {
+        count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1
+      });
+      followWithSmoke(ember, smoke);
     }
 
     function buildPagodaBack() {
@@ -4096,8 +4126,8 @@
 
     function addPuddles() {
       const puddleMat = new THREE.MeshStandardMaterial({
-        color: 0x04050b, roughness: 0.03, metalness: 0.9,
-        envMap: proceduralEnvMap, envMapIntensity: 1.8
+        color: 0x0a1226, roughness: 0.03, metalness: 0.6,
+        envMap: proceduralEnvMap, envMapIntensity: 2.5
       });
       const geo = new THREE.CircleGeometry(1, 28);
       geo.rotateX(-Math.PI / 2);
@@ -4134,7 +4164,7 @@
     }
 
     function addStreetLampCone() {
-      makeLightCone(bikeLampGroup, 0.85, 4.1, -0.6, { radius: 1.6, height: 4.0, color: 0xffa63d, opacity: 0.12 });
+      makeLightCone(bikeLampGroup, 0.85, 4.1, -0.6, { radius: 1.3, height: 4.0, color: 0xffa63d, opacity: 0.08 });
     }
 
     // ============================================================
@@ -4425,6 +4455,395 @@
       }
     }
 
+    // ============================================================
+    // ПАТЧ 45 — ДЕТАЛИ НА КРЫШЕ ОТЕЛЯ (сверху это была пустая чёрная плита)
+    // ============================================================
+    function addRoofDetails() {
+      const g = hotelGroup;
+      const add = (geo, mat, x, y, z) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.castShadow = true;
+        g.add(m);
+        return m;
+      };
+      // Вентиляционный короб с трубой и водонапорный бак на опорах
+      add(new THREE.BoxGeometry(0.7, 0.35, 0.7), MAT.metalPipe, -1.0, 5.38, -1.2);
+      add(new THREE.CylinderGeometry(0.1, 0.1, 0.5, 10), MAT.metalPipe, -1.0, 5.8, -1.2);
+      add(new THREE.CylinderGeometry(0.45, 0.45, 0.8, 12), MAT.metalRust, 1.1, 5.95, -1.1);
+      [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]].forEach(([dx, dz]) => {
+        add(new THREE.CylinderGeometry(0.03, 0.03, 0.55, 6), MAT.metalPipe, 1.1 + dx, 5.48, -1.1 + dz);
+      });
+      // Будка лестницы с тёплым светом из двери
+      add(new THREE.BoxGeometry(0.9, 0.7, 0.8), MAT.timberDark, 0.0, 5.55, -1.3);
+      add(new THREE.BoxGeometry(0.3, 0.45, 0.04), MAT.windowWarm, 0.0, 5.45, -0.88);
+      // Антенны
+      [[-1.5, -0.3, 1.2], [-1.35, -0.5, 0.9], [1.5, 0.3, 1.0]].forEach(([x, z, h]) => {
+        add(new THREE.CylinderGeometry(0.012, 0.012, h, 5), MAT.metalPipe, x, 5.2 + h / 2, z);
+      });
+      // Красный сигнальный огонёк на баке (мигает редко)
+      const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff1744, toneMapped: false });
+      const beaconMesh = add(new THREE.SphereGeometry(0.05, 8, 6), beaconMat, 1.1, 6.4, -1.1);
+      beaconMesh.castShadow = false;
+      propUpdates.push((t) => {
+        const on = t % 2.4 < 0.25 ? 1 : 0.15;
+        beaconMat.color.setRGB(on, 0.09 * on, 0.14 * on);
+      });
+    }
+
+    // ============================================================
+    // ПАТЧ 46 — ПОЛИЦЕЙСКАЯ СЦЕНА: МАШИНЫ, МИГАЛКИ, ТЕЛО ПОД ПРОСТЫНЁЙ, ЛЕНТА, МАРКЕРЫ, ПЯТЬ ЛЮДЕЙ
+    // ============================================================
+    const POLICE_ENABLED = !location.search.includes('nopolice');
+
+    function createPoliceTextTexture() {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 96;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#e5e7eb';
+      ctx.fillRect(0, 0, 256, 96);
+      ctx.fillStyle = '#0b0e17';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 54px "Yu Gothic", Meiryo, "Segoe UI", sans-serif';
+      ctx.fillText('警察', 128, 38);
+      ctx.font = 'bold 26px "Segoe UI", sans-serif';
+      ctx.fillText('POLICE', 128, 78);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function createPoliceCar(redMat, blueMat) {
+      const g = new THREE.Group();
+      const black = new THREE.MeshStandardMaterial({ color: 0x0b0e17, roughness: 0.3, metalness: 0.5 });
+      const white = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.4, metalness: 0.2 });
+      const glass = new THREE.MeshStandardMaterial({
+        color: 0x061018, emissive: 0x0a2a3a, emissiveIntensity: 0.4, roughness: 0.1, metalness: 0.8
+      });
+      const tire = new THREE.MeshStandardMaterial({ color: 0x08090d, roughness: 0.9 });
+      const lamp = new THREE.MeshBasicMaterial({ color: 0xdff6ff, toneMapped: false });
+      const tail = new THREE.MeshBasicMaterial({ color: 0xff1744, toneMapped: false });
+      const add = (geo, mat, x, y, z) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.castShadow = true;
+        g.add(m);
+        return m;
+      };
+
+      add(new THREE.BoxGeometry(2.2, 0.45, 0.95), black, 0, 0.42, 0);
+      add(new THREE.BoxGeometry(1.0, 0.3, 0.97), white, 0, 0.42, 0);
+      add(new THREE.BoxGeometry(1.1, 0.38, 0.82), black, -0.1, 0.82, 0);
+      add(new THREE.BoxGeometry(1.0, 0.26, 0.86), glass, -0.1, 0.84, 0);
+      add(new THREE.BoxGeometry(0.9, 0.04, 0.8), black, -0.1, 1.04, 0);
+      add(new THREE.BoxGeometry(0.28, 0.09, 0.2), redMat, -0.1, 1.11, -0.11);
+      add(new THREE.BoxGeometry(0.28, 0.09, 0.2), blueMat, -0.1, 1.11, 0.11);
+      [[0.7, 0.5], [0.7, -0.5], [-0.7, 0.5], [-0.7, -0.5]].forEach(([x, z]) => {
+        const w = add(new THREE.CylinderGeometry(0.22, 0.22, 0.18, 14), tire, x, 0.22, z);
+        w.rotation.x = Math.PI / 2;
+      });
+      [-0.3, 0.3].forEach((z) => {
+        add(new THREE.BoxGeometry(0.04, 0.1, 0.22), lamp, 1.11, 0.45, z);
+        add(new THREE.BoxGeometry(0.04, 0.1, 0.22), tail, -1.11, 0.45, z);
+      });
+
+      const textTex = createPoliceTextTexture();
+      const textMat = new THREE.MeshBasicMaterial({ map: textTex });
+      const sideA = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.27), textMat);
+      sideA.position.set(0, 0.42, 0.49);
+      const sideB = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.27), textMat);
+      sideB.position.set(0, 0.42, -0.49);
+      sideB.rotation.y = Math.PI;
+      g.add(sideA, sideB);
+      return g;
+    }
+
+    function createEvidenceMarker(n) {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 64;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(0, 0, 64, 64);
+      ctx.fillStyle = '#0b0e17';
+      ctx.font = 'bold 44px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(n), 32, 34);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+      const g = new THREE.Group();
+      [-1, 1].forEach((s) => { // две наклонные пластины: «палатка»
+        const pl = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.2), mat);
+        pl.position.set(0, 0.1, s * 0.04);
+        pl.rotation.x = -s * 0.35;
+        g.add(pl);
+      });
+      return g;
+    }
+
+    function createTapeTexture() {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 8;
+      const ctx = c.getContext('2d');
+      for (let i = 0; i < 8; i++) {
+        ctx.fillStyle = i % 2 ? '#0b0e17' : '#facc15';
+        ctx.fillRect(i * 8, 0, 8, 8);
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      return tex;
+    }
+
+    function addTape(a, b, y = 0.85) {
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      const tex = createTapeTexture();
+      tex.repeat.set(len * 4, 1);
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(len, 0.06),
+        new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })
+      );
+      m.position.set((a.x + b.x) / 2, y, (a.z + b.z) / 2);
+      m.rotation.y = -Math.atan2(dz, dx);
+      islandGroup.add(m);
+    }
+
+    // ---- Анимации людей ----
+    function animateTalking(c, seed = 0) {
+      const p = c.userData.parts;
+      const base = c.userData.update;
+      c.userData.update = (t) => {
+        base(t);
+        const burst = Math.max(0, Math.sin(t * 0.9 + seed)); // периоды «говорит»
+        const wave = Math.sin(t * 6 + seed * 2) * 0.15 * burst;
+        p.armR.upper.rotation.set(-0.5 - 0.7 * burst, 0, -0.15);
+        p.armR.fore.rotation.x = -0.5 - 0.6 * burst + wave;
+        c.userData.headYaw = Math.sin(t * 0.5 + seed) * 0.3;
+      };
+    }
+
+    function animateNotetaker(c) {
+      const p = c.userData.parts;
+      const base = c.userData.update;
+      const book = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.14, 0.015),
+        new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.8 })
+      );
+      book.position.set(0, -p.armL.fore.userData.total, 0.05);
+      p.armL.fore.add(book);
+      c.userData.update = (t) => {
+        base(t);
+        p.armL.upper.rotation.set(-1.0, 0, 0.1);
+        p.armL.fore.rotation.x = -1.3;
+        p.armR.upper.rotation.set(-1.0, 0, -0.1);
+        p.armR.fore.rotation.x = -1.1 + Math.sin(t * 7) * 0.08; // пишет
+        c.userData.headPitch = Math.sin(t * 0.6) > 0.3 ? 0.3 : 0.0; // то в блокнот, то на свидетеля
+      };
+    }
+
+    function animateGesturing(c, seed = 0) {
+      const p = c.userData.parts;
+      const base = c.userData.update;
+      c.userData.update = (t) => {
+        base(t);
+        const burst = Math.max(0, Math.sin(t * 0.8 + seed));
+        p.armL.upper.rotation.set(-0.5 - 0.6 * burst, 0, 0.1);
+        p.armL.fore.rotation.x = -0.7 - 0.5 * burst + Math.sin(t * 7 + seed) * 0.12 * burst;
+        p.armR.upper.rotation.set(-0.3 - 0.4 * burst, 0, -0.1);
+        p.armR.fore.rotation.x = -0.5 - 0.4 * burst;
+      };
+    }
+
+    function poseBentOver(c) { // склонился над телом
+      const p = c.userData.parts;
+      p.body.rotation.x = 0.9;
+      p.armL.upper.rotation.set(-1.25, 0, -0.12);
+      p.armL.fore.rotation.x = 0;
+      p.armR.upper.rotation.set(-1.25, 0, 0.12);
+      p.armR.fore.rotation.x = 0;
+      c.userData.headPitch = -0.7;
+    }
+
+    function findCitizenNear(x, z, radius = 0.7) {
+      islandGroup.updateMatrixWorld(true);
+      const v = new THREE.Vector3();
+      let best = null;
+      let bestD = radius;
+      citizens.forEach((c) => {
+        c.getWorldPosition(v);
+        islandGroup.worldToLocal(v);
+        const d = Math.hypot(v.x - x, v.z - z);
+        if (d < bestD) { best = c; bestD = d; }
+      });
+      return best;
+    }
+
+    function buildPoliceScene() {
+      if (!POLICE_ENABLED) return;
+      const roadY = 0.03;
+
+      // --- Мигалки: общие материалы и две настоящие лампы ---
+      const redMat = new THREE.MeshBasicMaterial({ color: 0xff1a2d, toneMapped: false });
+      const blueMat = new THREE.MeshBasicMaterial({ color: 0x2a5bff, toneMapped: false });
+
+      const carA = createPoliceCar(redMat, blueMat);
+      carA.position.set(-0.8, 0, -3.3);
+      carA.rotation.y = 0.25;
+      islandGroup.add(carA);
+      const carB = createPoliceCar(redMat, blueMat);
+      carB.position.set(2.0, 0, 1.0);
+      carB.rotation.y = Math.PI / 2 + 0.15;
+      islandGroup.add(carB);
+
+      const redLight = new THREE.PointLight(0xff2030, 0, 14, 1.8);
+      redLight.position.set(-0.9, 1.7, -3.3);
+      islandGroup.add(redLight);
+      const blueLight = new THREE.PointLight(0x2a5bff, 0, 14, 1.8);
+      blueLight.position.set(2.0, 1.7, 1.0);
+      islandGroup.add(blueLight);
+
+      const decals = [
+        [glowDecal(islandGroup, -0.8, -3.3, 4.5, 0xff1a2d, 0, 0.035), 'r'],
+        [glowDecal(islandGroup, -0.8, -3.3, 4.5, 0x2a5bff, 0, 0.036), 'b'],
+        [glowDecal(islandGroup, 2.0, 1.0, 4.5, 0xff1a2d, 0, 0.035), 'r'],
+        [glowDecal(islandGroup, 2.0, 1.0, 4.5, 0x2a5bff, 0, 0.036), 'b']
+      ];
+      const rate = REDUCED_MOTION ? 0.4 : 1.2; // плавные импульсы, без резкого строба
+      propUpdates.push((t) => {
+        const s = Math.sin(t * Math.PI * 2 * rate);
+        const r = Math.max(0, s);
+        const b = Math.max(0, -s);
+        redMat.color.setRGB(0.18 + 0.82 * r, 0.02, 0.04);
+        blueMat.color.setRGB(0.04 + 0.1 * b, 0.1 + 0.25 * b, 0.3 + 0.7 * b);
+        redLight.intensity = 0.3 + 7.0 * r;
+        blueLight.intensity = 0.3 + 7.0 * b;
+        decals.forEach(([d, kind]) => { d.material.opacity = 0.55 * (kind === 'r' ? r : b); });
+      });
+
+      // --- Тело под простынёй (без крови, только очертания и ботинки) ---
+      const sheetMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, roughness: 0.65 });
+      const shoeMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.8 });
+      const sheet = new THREE.Group();
+      sheet.position.set(-0.9, roadY, 0.2);
+      sheet.rotation.y = 0.15;
+      const part = (geo, mat, x, y, z) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        sheet.add(m);
+        return m;
+      };
+      part(new THREE.BoxGeometry(0.46, 0.13, 0.8), sheetMat, 0, 0.095, 0.1);
+      part(new THREE.SphereGeometry(0.13, 10, 8), sheetMat, 0, 0.1, -0.42).scale.set(1, 0.8, 1.1);
+      part(new THREE.BoxGeometry(0.3, 0.08, 0.5), sheetMat, 0, 0.07, 0.72);
+      [-0.08, 0.08].forEach((x) => part(new THREE.BoxGeometry(0.1, 0.05, 0.14), shoeMat, x, 0.045, 1.0));
+      islandGroup.add(sheet);
+
+      // --- Маркеры с номерами и ограждение лентой ---
+      [[1, -1.65, -0.25], [2, -0.35, 0.65], [3, -1.55, 1.15]].forEach(([n, x, z]) => {
+        const mk = createEvidenceMarker(n);
+        mk.position.set(x, roadY, z);
+        mk.rotation.y = n * 0.7;
+        islandGroup.add(mk);
+      });
+      const corners = [
+        { x: -2.35, z: -0.95 }, { x: 0.45, z: -0.95 }, { x: 0.45, z: 1.65 }, { x: -2.35, z: 1.65 }
+      ];
+      const postMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.6 });
+      corners.forEach((c) => {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.0, 6), postMat);
+        post.position.set(c.x, roadY + 0.5, c.z);
+        islandGroup.add(post);
+      });
+      corners.forEach((c, i) => addTape(c, corners[(i + 1) % 4]));
+
+      // --- Люди ---
+      const uniform = (extra = {}) => createCitizen({
+        coat: 0x0f1a33, trim: 0x7dd3fc, hood: false, visor: false,
+        hat: 'cap', hatColor: 0x0b1226, glowTrim: true, ...extra
+      });
+      const whiteSuit = (extra = {}) => createCitizen({
+        coat: 0xf1f5f9, trim: 0xfacc15, hood: true, visor: false, mask: true, ...extra
+      });
+      const place = (c, x, z, rotY) => {
+        c.position.set(x, roadY, z);
+        c.rotation.y = rotY;
+        c.scale.setScalar(1);
+        islandGroup.add(c);
+        citizens.push(c);
+        return c;
+      };
+
+      // Двое разговаривают у машины A (один в форме, второй детектив в плаще и федоре)
+      const cop1 = place(uniform(), -0.35, -2.35, 1.4);
+      addBackEmblem(cop1, '警', '#9ad8ff');
+      animateTalking(cop1, 0);
+      const detective = place(createCitizen({
+        coat: 0xa8865a, trim: 0xfacc15, hood: false, visor: false, longCoat: true,
+        hat: 'fedora', hatColor: 0x3b2a1c
+      }), 0.45, -2.1, -1.5);
+      animateTalking(detective, 2.0);
+
+      // Допрос свидетельницы: коп стоит на дороге у бордюра, девушка на тротуаре
+      const cop3 = place(uniform(), -2.35, 3.1, -Math.PI / 2);
+      animateNotetaker(cop3);
+      const witness = findCitizenNear(-3.3, 3.0);
+      if (witness) {
+        witness.rotation.y = Math.PI / 2; // лицом к копу
+        animateGesturing(witness, 1.0);
+      }
+
+      // Криминалист склонился над телом
+      const tech = place(whiteSuit(), -1.9, 0.55, Math.PI / 2);
+      poseBentOver(tech);
+
+      // Фотограф ходит вдоль места и снимает со вспышкой
+      const photographer = whiteSuit();
+      place(photographer, 0.05, -0.6, 0);
+      const pp = photographer.userData.parts;
+      const flashSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: getGlowTex(), color: 0xffffff, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+      }));
+      flashSprite.scale.set(1.2, 1.2, 1);
+      flashSprite.position.set(0, 0, 0.3);
+      pp.head.add(flashSprite);
+      const cam = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x111827 }));
+      cam.position.set(0, -0.02, 0.2);
+      pp.head.add(cam);
+
+      let flash = 0;
+      let nextFlash = 0;
+      let lastT = null;
+      const photoAction = (t, p) => {
+        p.body.rotation.x = 0.1;
+        p.armL.upper.rotation.set(-1.35, 0, -0.2);
+        p.armL.fore.rotation.x = -1.7;
+        p.armR.upper.rotation.set(-1.35, 0, 0.2);
+        p.armR.fore.rotation.x = -1.7;
+        if (t > nextFlash) { flash = 1; nextFlash = t + 2.2 + Math.random() * 0.8; }
+      };
+      propUpdates.push((t) => {
+        const dt = lastT === null ? 0 : Math.min(0.1, t - lastT);
+        lastT = t;
+        flash = Math.max(0, flash - dt * 6);
+        flashSprite.material.opacity = flash;
+      });
+      const faceBody = -Math.PI / 2; // лицом на запад (к телу)
+      makeWalker(photographer, [
+        { x: 0.05, z: -0.6, wait: 2.2, face: faceBody, action: photoAction },
+        { x: 0.05, z: 0.3, wait: 2.2, face: faceBody, action: photoAction },
+        { x: 0.05, z: 1.2, wait: 2.2, face: faceBody, action: photoAction },
+        { x: 0.05, z: 0.3, wait: 0.5, face: faceBody }
+      ], { speed: 0.7 });
+    }
+
     // Call builders before animate
     buildBackAlley();
     buildBillboard();
@@ -4439,11 +4858,13 @@
     buildHotelBack();
     buildPagodaBack();
     addSideWindows();
+    addRoofDetails();
     addPuddles();
     addDrains();
     addStreetLampCone();
     applyLightBudget();
     restoreSavedQuality();
+    buildPoliceScene();
     trimShadowCasters(); // Always last
 
     // Pre-warm shaders and render a trial frame before dismissing loader
