@@ -271,6 +271,7 @@
     // Main Floating Island Master Group (levitates organically)
     const islandGroup = new THREE.Group();
     scene.add(islandGroup);
+    const propUpdates = [];
 
     // ========================================================
     // 1b. CRISP 3D HD NEON LIGHTBOX BUILDERS (1024x512 / 512x1024)
@@ -886,7 +887,7 @@
       coat = 0x141824, trim = 0x00f3ff, sitting = false, longCoat = false, hood = true, visor = true,
       headband = false, apron = false, eating = false,
       hat = null, hatColor = 0x1f2937, scarf = null, mask = false, glowTrim = false,
-      skin = 0x9c7a68, hair = 0x07080c, phase = Math.random() * 6
+      skin = 0x9c7a68, hair = 0x07080c, phase = Math.random() * 6, backStripe = true
     } = {}) {
       const g = new THREE.Group();
       const coatMat = new THREE.MeshStandardMaterial({ color: coat, roughness: 0.75, metalness: 0.1 });
@@ -896,7 +897,7 @@
       const glowMat = new THREE.MeshBasicMaterial({ color: trim, toneMapped: false });
 
       const hipY = sitting ? 0.59 : 0.76;
-      const body = new THREE.Group(); // верх тела вращается вокруг бёдер
+      const body = new THREE.Group(); // Upper torso pivot at hips
       body.position.y = hipY;
       g.add(body);
 
@@ -908,6 +909,7 @@
 
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.38, 0.02), glowMat);
       stripe.position.set(0, 0.3, -0.115);
+      stripe.visible = backStripe;
       body.add(stripe);
 
       if (glowTrim) {
@@ -977,7 +979,17 @@
         head.add(v);
       }
 
-      if (mask) {
+      if (mask === 'respirator') {
+        [-1, 1].forEach((s) => {
+          const filter = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.06, 10), blackMat);
+          filter.rotation.x = Math.PI / 2;
+          filter.position.set(s * 0.07, -0.07, 0.15);
+          head.add(filter);
+          const vent = new THREE.Mesh(new THREE.CircleGeometry(0.02, 8), glowMat);
+          vent.position.set(s * 0.07, -0.07, 0.182);
+          head.add(vent);
+        });
+      } else if (mask) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.07, 0.06), blackMat);
         m.position.set(0, -0.06, 0.125);
         head.add(m);
@@ -998,7 +1010,7 @@
         head.add(band);
       }
 
-      if (hat === 'kasa') { // коническая соломенная шляпа с неоновым ободком
+      if (hat === 'kasa') { // Conical straw笠 with neon rim
         const kasa = new THREE.Mesh(
           new THREE.ConeGeometry(0.3, 0.14, 14),
           new THREE.MeshStandardMaterial({ color: 0xcaa86a, roughness: 0.9 })
@@ -1032,7 +1044,7 @@
         head.add(crown, brimF);
       }
 
-      // Руки (плечо -> предплечье), крепятся к верху тела
+      // Upper limbs: shoulder and forearm hierarchy
       const makeArm = (side) => {
         const upper = limb(0.045, 0.2, coatMat);
         upper.position.set(side * 0.2, 0.5, 0);
@@ -1145,6 +1157,97 @@
       patch.position.set(0, 0.3, -0.113);
       patch.rotation.y = Math.PI;
       bodyOf(citizen).add(patch);
+    }
+
+    function createTechEmblemTexture() {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const ctx = c.getContext('2d');
+      const hex = (r) => {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = Math.PI / 6 + (i * Math.PI) / 3;
+          const x = 64 + r * Math.cos(a);
+          const y = 64 + r * Math.sin(a);
+          if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        }
+        ctx.closePath();
+      };
+      ctx.fillStyle = '#0a0a0f';
+      hex(60);
+      ctx.fill();
+      ctx.strokeStyle = '#7ffcff';
+      ctx.lineWidth = 5;
+      ctx.shadowColor = '#7ffcff';
+      ctx.shadowBlur = 12;
+      hex(56);
+      ctx.stroke();
+      ctx.fillStyle = '#7ffcff';
+      ctx.fillRect(56, 24, 16, 42);
+      ctx.fillRect(43, 37, 42, 16);
+      ctx.shadowBlur = 0;
+      ctx.font = 'bold 20px "Yu Gothic", Meiryo, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('鑑識', 64, 96);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    }
+
+    function createBadgeTexture(kind) {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 72;
+      const ctx = c.getContext('2d');
+      if (kind === 'tech') {
+        ctx.fillStyle = '#0a0a0f';
+        ctx.fillRect(4, 4, 56, 64);
+        ctx.strokeStyle = '#7ffcff';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(6, 6, 52, 60);
+        ctx.fillStyle = '#7ffcff';
+        ctx.fillRect(28, 18, 8, 36);
+        ctx.fillRect(18, 28, 28, 8);
+      } else {
+        ctx.fillStyle = '#d4af37'; // Shield badge livery
+        ctx.beginPath();
+        ctx.moveTo(6, 6);
+        ctx.lineTo(58, 6);
+        ctx.lineTo(58, 40);
+        ctx.quadraticCurveTo(58, 62, 32, 68);
+        ctx.quadraticCurveTo(6, 62, 6, 40);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#0b0e17';
+        ctx.font = 'bold 34px "Yu Gothic", Meiryo, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('警', 32, 34);
+      }
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    }
+
+    function addUniformEmblems(c, kind) {
+      const body = bodyOf(c);
+      if (c.userData.stripe) c.userData.stripe.visible = false;
+      const back = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.26, 0.26),
+        new THREE.MeshBasicMaterial({
+          map: kind === 'tech' ? createTechEmblemTexture() : createEmblemTexture('警', '#7dd3fc'),
+          transparent: true, toneMapped: false
+        })
+      );
+      back.position.set(0, 0.3, -0.113);
+      back.rotation.y = Math.PI;
+      body.add(back);
+      const badge = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.075, 0.085),
+        new THREE.MeshBasicMaterial({ map: createBadgeTexture(kind), transparent: true, toneMapped: false })
+      );
+      badge.position.set(-0.07, 0.4, 0.113);
+      body.add(badge);
     }
 
     function addBackpack(citizen, color = 0x1f2937) {
@@ -1745,10 +1848,11 @@
 
     // ROOFTOP HOLOGRAM: Spinning Wireframe Multilayer Rings with Inner Icosahedron
     const holo1 = new THREE.Group();
-    holo1.position.set(0, 7.3, 0);
+    holo1.position.set(0, 8.0, 0);
 
     const r1 = new THREE.Mesh(new THREE.RingGeometry(0.7, 0.78, 20), MAT.neonCyan);
     const r2 = new THREE.Mesh(new THREE.RingGeometry(0.9, 0.98, 20), MAT.neonPink);
+    r2.scale.setScalar(0.8);
     r1.rotation.x = Math.PI / 2;
     r2.rotation.y = Math.PI / 2;
     holo1.add(r1);
@@ -1859,6 +1963,32 @@
     torusHolo.rotation.x = Math.PI / 3;
     holo2.add(torusHolo);
     hotelGroup.add(holo2);
+
+    function addHotelRadar() {
+      hotelGroup.remove(holo2);
+      const g = new THREE.Group();
+      g.position.set(1.25, 5.2, 0.75);
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 1.1, 8), MAT.metalPipe);
+      mast.position.y = 0.55;
+      const pivot = new THREE.Group();
+      pivot.position.y = 1.1;
+      const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.06, 0.1, 16), MAT.metalPipe);
+      dish.rotation.z = 0.6;
+      dish.position.x = 0.12;
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 6), MAT.metalPipe);
+      arm.rotation.z = Math.PI / 2;
+      arm.position.x = 0.05;
+      const tip = new THREE.Mesh(
+        new THREE.SphereGeometry(0.03, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0x00f3ff, toneMapped: false })
+      );
+      tip.position.set(0.28, 0.1, 0);
+      pivot.add(dish, arm, tip);
+      g.add(mast, pivot);
+      hotelGroup.add(g);
+      propUpdates.push((t) => { pivot.rotation.y = t * 0.8; });
+    }
+    addHotelRadar();
 
     // Japanese Cyber Vending Machines (Beverages) along building front
     // Machine 1: Cyan / Blue Sports Drinks
@@ -2791,7 +2921,6 @@
     // ============================================================
     // Atmospheric VFX & Lighting Helpers: steam emitters, contact glow decals, prop update loops
     // ============================================================
-    const propUpdates = [];
     const steamEmitters = [];
     const glowDecals = [];
     const puddleSpots = [];
@@ -3381,7 +3510,63 @@
       makeSlideshow(faceMat, [faceMat.map, createBillboardAdTexture(1), createBillboardAdTexture(2)], 6);
     }
 
-    function addBigBrotherHologram(g) {
+    function createKitsuneTexture() {
+      const W = 1024;
+      const H = 512;
+      const c = document.createElement('canvas');
+      c.width = W;
+      c.height = H;
+      const ctx = c.getContext('2d');
+      const cx = 256; // Face projection center on sphere (u = 0.25)
+      const cy = 256;
+      ctx.fillStyle = '#f4f7ff';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 135, 170, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#e11d48';
+      ctx.lineWidth = 9;
+      ctx.lineCap = 'round';
+      [-1, 1].forEach((s) => {
+        for (let i = 0; i < 3; i++) { // Whisker marks on cheeks
+          ctx.beginPath();
+          ctx.moveTo(cx + s * 62, cy + 52 + i * 22);
+          ctx.lineTo(cx + s * 128, cy + 30 + i * 32);
+          ctx.stroke();
+        }
+        ctx.beginPath(); // Eye-to-temple flourish accent
+        ctx.moveTo(cx + s * 32, cy - 36);
+        ctx.quadraticCurveTo(cx + s * 92, cy - 62, cx + s * 126, cy - 112);
+        ctx.stroke();
+      });
+      ctx.fillStyle = '#e11d48'; // Frontal diamond mark
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 150);
+      ctx.lineTo(cx + 22, cy - 108);
+      ctx.lineTo(cx, cy - 90);
+      ctx.lineTo(cx - 22, cy - 108);
+      ctx.closePath();
+      ctx.fill();
+      ctx.shadowColor = '#00f3ff'; // Luminescent ocular slits
+      ctx.shadowBlur = 22;
+      ctx.fillStyle = '#7ffcff';
+      [-1, 1].forEach((s) => {
+        ctx.beginPath();
+        ctx.moveTo(cx + s * 28, cy - 22);
+        ctx.quadraticCurveTo(cx + s * 70, cy - 52, cx + s * 100, cy - 38);
+        ctx.quadraticCurveTo(cx + s * 70, cy - 20, cx + s * 28, cy - 22);
+        ctx.fill();
+      });
+      ctx.shadowBlur = 0;
+      ctx.globalCompositeOperation = 'source-atop'; // Scanlines constrained to mask surface
+      ctx.fillStyle = 'rgba(0, 40, 80, 0.22)';
+      for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 2);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 4;
+      return tex;
+    }
+
+    function addKitsuneHologram(g) {
       const holo = new THREE.Group();
       holo.position.set(0, 3.3 + 1.05 + 0.12, 0);
 
@@ -3397,36 +3582,56 @@
 
       const head = new THREE.Group();
       head.position.y = 1.05;
-      const wire = new THREE.MeshBasicMaterial({
-        color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.85, toneMapped: false
+      const maskMat = new THREE.MeshBasicMaterial({
+        map: createKitsuneTexture(), transparent: true, opacity: 0.92,
+        side: THREE.DoubleSide, depthWrite: false, toneMapped: false
       });
-      const skull = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 1), wire);
-      skull.scale.set(0.9, 1.1, 0.9);
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff1744, toneMapped: false });
-      [-0.15, 0.15].forEach((x) => {
-        const e = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.04), eyeMat);
-        e.position.set(x, 0.08, 0.38);
-        head.add(e);
-      });
-      const smile = new THREE.Mesh(
-        new THREE.TorusGeometry(0.2, 0.018, 6, 20, Math.PI),
-        new THREE.MeshBasicMaterial({ color: 0xff007f, toneMapped: false })
-      );
-      smile.rotation.z = Math.PI; // дуга вниз = улыбка
-      smile.position.set(0, -0.08, 0.36);
-      head.add(skull, smile);
+      const mask = new THREE.Mesh(new THREE.SphereGeometry(0.42, 32, 24), maskMat);
+      mask.scale.set(0.8, 1.0, 0.55);
+      head.add(mask);
 
-      holo.add(base, beam, head);
+      const whiteMat = new THREE.MeshBasicMaterial({ color: 0xcfe9ff, transparent: true, opacity: 0.88, toneMapped: false });
+      const redMat2 = new THREE.MeshBasicMaterial({ color: 0xe11d48, transparent: true, opacity: 0.9, toneMapped: false });
+      [-1, 1].forEach((s) => { // Fox ears (outer auricle and inner shade)
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.34, 4), whiteMat);
+        ear.position.set(s * 0.2, 0.46, -0.02);
+        ear.rotation.z = -s * 0.3;
+        const inner = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.22, 4), redMat2);
+        inner.position.set(s * 0.2, 0.44, 0.0);
+        inner.rotation.z = -s * 0.3;
+        head.add(ear, inner);
+      });
+      const snout = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 10), whiteMat); // Muzzle volume
+      snout.scale.set(0.9, 0.7, 1.4);
+      snout.position.set(0, -0.1, 0.3);
+      const nose = new THREE.Mesh(
+        new THREE.SphereGeometry(0.03, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0x0b0e17, toneMapped: false })
+      );
+      nose.position.set(0, -0.09, 0.45);
+      head.add(snout, nose);
+
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.7, toneMapped: false });
+      const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.01, 6, 36), ringMat);
+      ring1.rotation.x = Math.PI / 2;
+      ring1.position.y = 0.3;
+      const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.01, 6, 36), ringMat);
+      ring2.rotation.x = Math.PI / 2;
+      ring2.position.y = 0.45;
+
+      holo.add(base, beam, head, ring1, ring2);
       g.add(holo);
 
       const wp = new THREE.Vector3();
       propUpdates.push((t) => {
         head.getWorldPosition(wp);
-        head.lookAt(camera.position.x, wp.y, camera.position.z); // всегда лицом к камере
+        head.lookAt(camera.position.x, wp.y, camera.position.z); // Constrain yaw orientation to active camera
         head.position.y = 1.05 + Math.sin(t * 1.5) * 0.03;
-        const glitch = Math.sin(t * 1.1) * Math.sin(t * 9.0) > 0.92;
-        wire.opacity = glitch ? 0.3 : 0.85;
-        eyeMat.color.setHex(Math.sin(t * 2.0) > 0.95 ? 0xffffff : 0xff1744);
+        ring1.rotation.z = t * 1.2;
+        ring2.rotation.z = -t * 0.8;
+        const glitch = Math.sin(t * 1.1) * Math.sin(t * 9.0) > 0.93;
+        maskMat.opacity = glitch ? 0.55 : 0.92;
+        head.scale.x = glitch ? 1.04 : 1;
       });
     }
 
@@ -3458,7 +3663,7 @@
       g.add(board);
       addBillboardNeon(g);
       addBillboardAnimation(board, g);
-      addBigBrotherHologram(g);
+      addKitsuneHologram(g);
       addBillboardScanline(g);
       [-1.3, 1.3].forEach((x) => {
         const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 3.1, 8), MAT.metalPipe);
@@ -3750,7 +3955,7 @@
       const p = citizen.userData.parts;
       const arm = side === 'R' ? p.armR : p.armL;
       const cig = new THREE.Group();
-      cig.position.y = -arm.fore.userData.total; // в кисти
+      cig.position.y = -arm.fore.userData.total; // Attached to wrist / hand node
       const stick = new THREE.Mesh(
         new THREE.CylinderGeometry(0.008, 0.008, 0.09, 6),
         new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.8 })
@@ -3776,9 +3981,100 @@
     }
 
     function puffCurve(t) {
-      const c = t % 6.0; // затяжка раз в 6 секунд: поднять, подержать, опустить
+      const c = t % 6.0; // Inhalation cycle (6s periodicity: elevate, hold, depress)
       const k = c < 0.7 ? c / 0.7 : c < 1.6 ? 1 : c < 2.3 ? 1 - (c - 1.6) / 0.7 : 0;
       return k * k * (3 - 2 * k);
+    }
+
+    // Arm joint orientation in global sagittal angles (psi1: upper arm pitch, psi2: forearm pitch)
+    function setArmPose(p, side, psi1, psi2, lateral = 0) {
+      const arm = side === 'L' ? p.armL : p.armR;
+      const th = p.body ? p.body.rotation.x : 0;
+      arm.upper.rotation.set(-psi1 - th, 0, lateral);
+      arm.fore.rotation.x = psi1 - psi2;
+    }
+
+    const _ikDown = new THREE.Vector3(0, -1, 0);
+
+    // Two-bone analytical inverse kinematics (IK) solver with elbow pole-vector constraint
+    function solveArmIK(arm, target, pole) {
+      const S = arm.upper.position;
+      const L1 = arm.upper.userData.total;
+      const L2 = arm.fore.userData.total;
+      const st = target.clone().sub(S);
+      let d = st.length();
+      d = Math.min(Math.max(d, Math.abs(L1 - L2) + 1e-3), L1 + L2 - 1e-3);
+      st.normalize();
+      const cosA = (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d);
+      const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+      const pr = pole.clone().sub(st.clone().multiplyScalar(pole.dot(st))).normalize();
+      const elbow = S.clone().add(st.clone().multiplyScalar(L1 * cosA)).add(pr.multiplyScalar(L1 * sinA));
+      const hand = S.clone().add(st.clone().multiplyScalar(d));
+      arm.upper.quaternion.setFromUnitVectors(_ikDown, elbow.clone().sub(S).normalize());
+      const foreDir = hand.clone().sub(elbow).normalize();
+      foreDir.applyQuaternion(arm.upper.quaternion.clone().invert());
+      arm.fore.quaternion.setFromUnitVectors(_ikDown, foreDir);
+    }
+
+    // Procedural smoking kinematics: cigarette grip, ember glow modulation, thin rising trail, and exhaled vapor
+    function setupSmokingIK(c, rest) {
+      const p = c.userData.parts;
+      const { cig, ember } = attachCigarette(c, 'R');
+
+      // Compute rest hand target position once via forward kinematics
+      setArmPose(p, 'R', rest.psi1, rest.psi2, 0.1);
+      c.updateWorldMatrix(true, true);
+      const restTarget = new THREE.Vector3(0, -p.armR.fore.userData.total, 0);
+      p.armR.fore.localToWorld(restTarget);
+      p.body.worldToLocal(restTarget);
+
+      const smoke = createSteamEmitter(new THREE.Vector3(), {
+        count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1
+      });
+      followWithSmoke(ember, smoke);
+      const exhale = createSteamEmitter(new THREE.Vector3(), {
+        count: 14, height: 0.9, spread: 0.1, size: 0.5, color: 0xe2e8f0
+      });
+      exhale.points.material.opacity = 0;
+
+      const mouth = new THREE.Vector3();
+      const target = new THREE.Vector3();
+      const pole = new THREE.Vector3();
+      const outward = new THREE.Vector3(0.35, 0, 0);
+      const fwd = new THREE.Vector3();
+      const qFore = new THREE.Quaternion();
+      const world = new THREE.Vector3();
+      const base = c.userData.update;
+
+      c.userData.update = (t) => {
+        base(t);
+        const e = puffCurve(t);
+
+        // Oral target in local body space
+        mouth.set(0, -0.075, 0.15).applyQuaternion(p.head.quaternion).add(p.head.position);
+        target.copy(restTarget).lerp(mouth, e);
+        pole.copy(_ikDown).applyQuaternion(p.body.quaternion.clone().invert()).add(outward);
+        solveArmIK(p.armR, target, pole);
+        setArmPose(p, 'L', rest.psi1, rest.psi2, -0.1);
+
+        // Cigarette alignment: parallel to forearm at rest, angled outward during inhale
+        fwd.set(0, 0.25, 1).normalize().applyQuaternion(p.head.quaternion);
+        qFore.copy(p.armR.upper.quaternion).multiply(p.armR.fore.quaternion).invert();
+        fwd.applyQuaternion(qFore);
+        const dirLocal = _ikDown.clone().lerp(fwd, e).normalize();
+        cig.quaternion.setFromUnitVectors(_ikDown, dirLocal);
+        const d = 0.35 + 0.65 * e;
+        ember.material.color.setRGB(d, 0.4 * d, 0);
+
+        // Exhale puff: smooth rise and decay at ~1.7s post-inhalation
+        const c6 = t % 6.0;
+        const ex = c6 > 1.7 && c6 < 3.6 ? Math.sin(((c6 - 1.7) / 1.9) * Math.PI) : 0;
+        exhale.points.material.opacity = 0.9 * ex;
+        world.copy(mouth);
+        p.body.localToWorld(world);
+        islandGroup.worldToLocal(world);
+        exhale.points.position.copy(world);
+      };
     }
 
     function addBalconySmoker(hotel, deckY) {
@@ -3790,33 +4086,9 @@
       w.rotation.y = Math.PI;
       hotel.add(w);
       citizens.push(w);
-
-      const p = w.userData.parts;
-      p.body.rotation.x = 0.85;
+      w.userData.parts.body.rotation.x = 0.85; // Leaning forward on balcony rail
       w.userData.headPitch = -0.6;
-      const { cig, ember } = attachCigarette(w, 'R');
-
-      const REST_R1 = -1.71;
-      const REST_R2 = -0.71;
-      const SMOKE_R2 = -2.44;
-      const CIG_REL = 1.4; // поворот сигареты в кисти на затяжке
-      const base = w.userData.update;
-      w.userData.update = (t) => {
-        base(t);
-        const e = puffCurve(t);
-        p.armL.upper.rotation.set(REST_R1, 0, -0.1);
-        p.armL.fore.rotation.x = REST_R2;
-        p.armR.upper.rotation.set(REST_R1, 0, 0.1);
-        p.armR.fore.rotation.x = REST_R2 + (SMOKE_R2 - REST_R2) * e;
-        cig.rotation.x = CIG_REL * e;
-        const d = 0.35 + 0.65 * e;
-        ember.material.color.setRGB(d, 0.4 * d, 0);
-      };
-
-      const smoke = createSteamEmitter(new THREE.Vector3(), {
-        count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1
-      });
-      followWithSmoke(ember, smoke);
+      setupSmokingIK(w, { psi1: 0.86, psi2: 1.571 });
     }
 
     function buildHotelBack() {
@@ -3886,32 +4158,9 @@
       parent.add(m);
       citizens.push(m);
       addBackEmblem(m, '龍', '#ff1744');
-
-      const p = m.userData.parts;
-      p.body.rotation.x = 0.8;
+      m.userData.parts.body.rotation.x = 0.8; // Slouched posture, forearms on knees
       m.userData.headPitch = -0.45;
-      const { cig, ember } = attachCigarette(m, 'R');
-
-      const REST = { r1: -1.09, r2: -0.91 };
-      const SMOKE = { r1: -1.55, r2: -2.17 };
-      const CIG_REL = 1.02;
-      const base = m.userData.update;
-      m.userData.update = (t) => {
-        base(t);
-        const e = puffCurve(t);
-        p.armL.upper.rotation.set(REST.r1, 0, -0.1);
-        p.armL.fore.rotation.x = REST.r2;
-        p.armR.upper.rotation.set(REST.r1 + (SMOKE.r1 - REST.r1) * e, 0, 0.1);
-        p.armR.fore.rotation.x = REST.r2 + (SMOKE.r2 - REST.r2) * e;
-        cig.rotation.x = CIG_REL * e;
-        const d = 0.35 + 0.65 * e;
-        ember.material.color.setRGB(d, 0.4 * d, 0);
-      };
-
-      const smoke = createSteamEmitter(new THREE.Vector3(), {
-        count: 10, height: 0.9, spread: 0.08, size: 0.28, color: 0xcbd5e1
-      });
-      followWithSmoke(ember, smoke);
+      setupSmokingIK(m, { psi1: 0.29, psi2: 1.2 });
     }
 
     function buildPagodaBack() {
@@ -4132,12 +4381,12 @@
       const geo = new THREE.CircleGeometry(1, 28);
       geo.rotateX(-Math.PI / 2);
       [
-        [-4.6, 4.45, 0.6, 0.45, 0.27],  // левый тротуар у скамьи
-        [1.2, 2.85, 1.0, 0.6, 0.03],    // дорога перед зеброй
-        [-1.9, 2.4, 0.8, 0.5, 0.03],    // дорога у фонаря (отражение лампы)
-        [-1.2, -2.0, 1.0, 0.65, 0.03],  // дорога у лапшичной
-        [5.6, -5.5, 0.5, 0.5, 0.27],    // задний двор отеля, перед дверью
-        [4.2, 4.2, 0.7, 0.5, 0.27]      // у остановки
+        [-4.6, 4.45, 0.6, 0.45, 0.27],  // Left sidewalk near bench
+        [1.2, 2.85, 1.0, 0.6, 0.03],    // Roadway prior to crosswalk
+        [-1.9, 2.4, 0.8, 0.5, 0.03],    // Street under lamppost (lantern reflection)
+        [-1.2, -2.0, 1.0, 0.65, 0.03],  // Street in front of noodle bar
+        [5.6, -5.5, 0.5, 0.5, 0.27],    // Hotel rear service court, entrance threshold
+        [4.2, 4.2, 0.7, 0.5, 0.27]      // Bus stop shelter perimeter
       ].forEach(([x, z, rx, rz, y]) => {
         const m = new THREE.Mesh(geo, puddleMat);
         m.position.set(x, y, z);
@@ -4168,7 +4417,7 @@
     }
 
     // ============================================================
-    // ПАТЧ 32 — ХОДЯЩИЕ ПЕРСОНАЖИ, ПОВАР ХОДИТ ПО КУХНЕ
+    // NPC WAYPOINT LOCOMOTION & KITCHEN COOK ROAMING SYSTEM
     // ============================================================
     function makeWalker(citizen, waypoints, { speed = 0.6 } = {}) {
       const parts = citizen.userData.parts;
@@ -4182,12 +4431,12 @@
 
       const turnTo = (angle, k) => {
         let d = angle - citizen.rotation.y;
-        d = Math.atan2(Math.sin(d), Math.cos(d)); // кратчайший поворот
+        d = Math.atan2(Math.sin(d), Math.cos(d)); // Shortest angular distance
         citizen.rotation.y += d * k;
       };
 
       citizen.userData.update = (t) => {
-        if (baseUpdate) baseUpdate(t); // дыхание и покачивание головы
+        if (baseUpdate) baseUpdate(t); // Thoracic breathing and cervical yaw
         const dt = last === null ? 0 : Math.min(0.1, t - last);
         last = t;
 
@@ -4203,7 +4452,7 @@
           citizen.position.x += (dx / dist) * step;
           citizen.position.z += (dz / dist) * step;
           turnTo(Math.atan2(dx, dz), Math.min(1, dt * 8));
-          phase += step * 7.0; // фаза шага зависит от пройденного пути, ноги не «скользят»
+          phase += step * 7.0; // Gait phase synchronized with ground distance to prevent foot sliding
         } else {
           if (wp.face !== undefined) turnTo(wp.face, Math.min(1, dt * 6));
           waitLeft -= dt;
@@ -4260,13 +4509,13 @@
         p.armR.fore.rotation.x = -0.6 + 0.12 * Math.sin(t * 4.3 + 2.0);
       };
       makeWalker(cook, [
-        { x: -1.0, z: 1.55, wait: 3.5, face: Math.PI, action: stir }, // у кастрюли (лицом к плите)
-        { x: 0.2, z: 1.65, wait: 4.5, face: 0, action: prep }         // у стойки (лицом к клиентам)
+        { x: -1.0, z: 1.55, wait: 3.5, face: Math.PI, action: stir }, // Stockpot station (facing stove)
+        { x: 0.2, z: 1.65, wait: 4.5, face: 0, action: prep }         // Serving counter (facing patrons)
       ], { speed: 0.5 });
     }
 
     // ============================================================
-    // ПАТЧ 34 — СИЛУЭТ В ОКНЕ (танцует или просто стоит)
+    // RESIDENTIAL WINDOW SHADOW SILHOUETTE (PROCEDURAL OCCUPANCY ANIMATION)
     // ============================================================
     function drawSilhouette(ctx, t, mode) {
       ctx.clearRect(0, 0, 128, 128);
@@ -4336,7 +4585,7 @@
     }
 
     // ============================================================
-    // ПАТЧ 35 — АДАПТИВНЫЙ УГОЛ ОБЗОРА (запись вертикального видео с телефона)
+    // RESPONSIVE ASPECT RATIO & DYNAMIC FOV COMPENSATION
     // ============================================================
     function applyResponsiveFov() {
       const a = camera.aspect;
@@ -4352,7 +4601,7 @@
     }
 
     // ============================================================
-    // ПАТЧ 36 — ГЛАВНОЕ УСКОРЕНИЕ: СКЛЕЙКА СТАТИЧНЫХ МЕШЕЙ
+    // STATIC GEOMETRY BATCHING & DRAW-CALL OPTIMIZATION PIPELINE
     // ============================================================
     const MERGE_ENABLED = !location.search.includes('nomerge');
     const _mergeSnaps = [];
@@ -4400,10 +4649,10 @@
         if (!first) return;
         for (let s = 1; s < snaps.length; s++) {
           const m = snaps[s].get(o);
-          if (!m || !sameMatrix(first, m)) return; // двигался, не склеиваем
+          if (!m || !sameMatrix(first, m)) return; // Dynamic transform detected; exclude from merge
         }
         _mRel.multiplyMatrices(_mInv, o.matrixWorld);
-        if (_mRel.determinant() < 0) return; // зеркальные меши пропускаем
+        if (_mRel.determinant() < 0) return; // Exclude negatively-scaled / mirrored geometry
         const key = mat.uuid + '|' + o.castShadow + '|' + o.receiveShadow;
         let b = buckets.get(key);
         if (!b) {
@@ -4432,7 +4681,7 @@
         });
         const geo = mergeGeometries(geos, false);
         geos.forEach((g) => g.dispose());
-        if (!geo) return; // не совпали атрибуты: оставляем как есть
+        if (!geo) return; // Attribute schema mismatch fallback
         const mesh = new THREE.Mesh(geo, b.mat);
         mesh.castShadow = b.cast;
         mesh.receiveShadow = b.recv;
@@ -4442,7 +4691,7 @@
         merged += b.items.length;
         created++;
       });
-      console.info('[merge] ' + merged + ' мешей -> ' + created);
+      console.info('[merge] ' + merged + ' meshes -> ' + created);
     }
 
     function mergeStep(time) {
@@ -4456,7 +4705,7 @@
     }
 
     // ============================================================
-    // ПАТЧ 45 — ДЕТАЛИ НА КРЫШЕ ОТЕЛЯ (сверху это была пустая чёрная плита)
+    // CAPSULE HOTEL ROOFTOP ARCHITECTURE (HVAC, CISTERN, ACCESS BULKHEAD)
     // ============================================================
     function addRoofDetails() {
       const g = hotelGroup;
@@ -4467,21 +4716,21 @@
         g.add(m);
         return m;
       };
-      // Вентиляционный короб с трубой и водонапорный бак на опорах
+      // HVAC enclosure, exhaust stack, and elevated water cistern
       add(new THREE.BoxGeometry(0.7, 0.35, 0.7), MAT.metalPipe, -1.0, 5.38, -1.2);
       add(new THREE.CylinderGeometry(0.1, 0.1, 0.5, 10), MAT.metalPipe, -1.0, 5.8, -1.2);
       add(new THREE.CylinderGeometry(0.45, 0.45, 0.8, 12), MAT.metalRust, 1.1, 5.95, -1.1);
       [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]].forEach(([dx, dz]) => {
         add(new THREE.CylinderGeometry(0.03, 0.03, 0.55, 6), MAT.metalPipe, 1.1 + dx, 5.48, -1.1 + dz);
       });
-      // Будка лестницы с тёплым светом из двери
+      // Rooftop stairwell bulkhead with illuminated access doorway
       add(new THREE.BoxGeometry(0.9, 0.7, 0.8), MAT.timberDark, 0.0, 5.55, -1.3);
       add(new THREE.BoxGeometry(0.3, 0.45, 0.04), MAT.windowWarm, 0.0, 5.45, -0.88);
-      // Антенны
+      // Telecom antenna masts
       [[-1.5, -0.3, 1.2], [-1.35, -0.5, 0.9], [1.5, 0.3, 1.0]].forEach(([x, z, h]) => {
         add(new THREE.CylinderGeometry(0.012, 0.012, h, 5), MAT.metalPipe, x, 5.2 + h / 2, z);
       });
-      // Красный сигнальный огонёк на баке (мигает редко)
+      // Aviation warning beacon on cistern (low-frequency strobe)
       const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff1744, toneMapped: false });
       const beaconMesh = add(new THREE.SphereGeometry(0.05, 8, 6), beaconMat, 1.1, 6.4, -1.1);
       beaconMesh.castShadow = false;
@@ -4492,7 +4741,7 @@
     }
 
     // ============================================================
-    // ПАТЧ 46 — ПОЛИЦЕЙСКАЯ СЦЕНА: МАШИНЫ, МИГАЛКИ, ТЕЛО ПОД ПРОСТЫНЁЙ, ЛЕНТА, МАРКЕРЫ, ПЯТЬ ЛЮДЕЙ
+    // CRIME SCENE INVESTIGATION DIORAMA (PATROL CRUISERS, FORENSICS, CORDON)
     // ============================================================
     const POLICE_ENABLED = !location.search.includes('nopolice');
 
@@ -4501,11 +4750,13 @@
       c.width = 256;
       c.height = 96;
       const ctx = c.getContext('2d');
-      ctx.fillStyle = '#e5e7eb';
-      ctx.fillRect(0, 0, 256, 96);
       ctx.fillStyle = '#0b0e17';
+      ctx.fillRect(0, 0, 256, 96);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#7ffcff';
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = 14;
       ctx.font = 'bold 54px "Yu Gothic", Meiryo, "Segoe UI", sans-serif';
       ctx.fillText('警察', 128, 38);
       ctx.font = 'bold 26px "Segoe UI", sans-serif';
@@ -4517,46 +4768,79 @@
 
     function createPoliceCar(redMat, blueMat) {
       const g = new THREE.Group();
-      const black = new THREE.MeshStandardMaterial({ color: 0x0b0e17, roughness: 0.3, metalness: 0.5 });
-      const white = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.4, metalness: 0.2 });
-      const glass = new THREE.MeshStandardMaterial({
-        color: 0x061018, emissive: 0x0a2a3a, emissiveIntensity: 0.4, roughness: 0.1, metalness: 0.8
+      const body = new THREE.Group();
+      body.position.y = 0.1; // Hover elevation above roadway
+      g.add(body);
+
+      const black = new THREE.MeshStandardMaterial({
+        color: 0x0b0e17, roughness: 0.25, metalness: 0.6, envMap: proceduralEnvMap, envMapIntensity: 1.2
       });
-      const tire = new THREE.MeshStandardMaterial({ color: 0x08090d, roughness: 0.9 });
+      const glass = new THREE.MeshStandardMaterial({
+        color: 0x061018, emissive: 0x0a2a3a, emissiveIntensity: 0.5, roughness: 0.1, metalness: 0.8
+      });
+      const cyan = new THREE.MeshBasicMaterial({ color: 0x00f3ff, toneMapped: false });
       const lamp = new THREE.MeshBasicMaterial({ color: 0xdff6ff, toneMapped: false });
       const tail = new THREE.MeshBasicMaterial({ color: 0xff1744, toneMapped: false });
-      const add = (geo, mat, x, y, z) => {
+      const add = (parent, geo, mat, x, y, z) => {
         const m = new THREE.Mesh(geo, mat);
         m.position.set(x, y, z);
         m.castShadow = true;
-        g.add(m);
+        parent.add(m);
         return m;
       };
 
-      add(new THREE.BoxGeometry(2.2, 0.45, 0.95), black, 0, 0.42, 0);
-      add(new THREE.BoxGeometry(1.0, 0.3, 0.97), white, 0, 0.42, 0);
-      add(new THREE.BoxGeometry(1.1, 0.38, 0.82), black, -0.1, 0.82, 0);
-      add(new THREE.BoxGeometry(1.0, 0.26, 0.86), glass, -0.1, 0.84, 0);
-      add(new THREE.BoxGeometry(0.9, 0.04, 0.8), black, -0.1, 1.04, 0);
-      add(new THREE.BoxGeometry(0.28, 0.09, 0.2), redMat, -0.1, 1.11, -0.11);
-      add(new THREE.BoxGeometry(0.28, 0.09, 0.2), blueMat, -0.1, 1.11, 0.11);
-      [[0.7, 0.5], [0.7, -0.5], [-0.7, 0.5], [-0.7, -0.5]].forEach(([x, z]) => {
-        const w = add(new THREE.CylinderGeometry(0.22, 0.22, 0.18, 14), tire, x, 0.22, z);
-        w.rotation.x = Math.PI / 2;
-      });
-      [-0.3, 0.3].forEach((z) => {
-        add(new THREE.BoxGeometry(0.04, 0.1, 0.22), lamp, 1.11, 0.45, z);
-        add(new THREE.BoxGeometry(0.04, 0.1, 0.22), tail, -1.11, 0.45, z);
+      // Lateral fuselage profile (bow pointing +X)
+      const sh = new THREE.Shape();
+      sh.moveTo(-1.25, 0.15);
+      sh.lineTo(1.2, 0.15);
+      sh.lineTo(1.3, 0.3);
+      sh.lineTo(0.55, 0.5);
+      sh.lineTo(0.05, 0.84);
+      sh.lineTo(-0.75, 0.86);
+      sh.lineTo(-1.25, 0.52);
+      sh.lineTo(-1.3, 0.3);
+      sh.closePath();
+      const hullGeo = new THREE.ExtrudeGeometry(sh, { depth: 0.95, bevelEnabled: false });
+      hullGeo.translate(0, 0, -0.475);
+      const hull = new THREE.Mesh(hullGeo, black);
+      hull.castShadow = true;
+      body.add(hull);
+
+      const gs = new THREE.Shape();
+      gs.moveTo(0.47, 0.54);
+      gs.lineTo(0.1, 0.8);
+      gs.lineTo(-0.7, 0.82);
+      gs.lineTo(-1.0, 0.57);
+      gs.closePath();
+      const glassGeo = new THREE.ExtrudeGeometry(gs, { depth: 0.97, bevelEnabled: false });
+      glassGeo.translate(0, 0, -0.485);
+      body.add(new THREE.Mesh(glassGeo, glass));
+
+      // Lateral neon stripe, LED headlights, and tail illumination
+      [-0.478, 0.478].forEach((z) => add(body, new THREE.BoxGeometry(2.3, 0.022, 0.01), cyan, 0, 0.26, z));
+      add(body, new THREE.BoxGeometry(0.03, 0.035, 0.7), lamp, 1.29, 0.34, 0);
+      add(body, new THREE.BoxGeometry(0.03, 0.05, 0.8), tail, -1.29, 0.4, 0);
+
+      // Rooftop emergency strobe: dual split beacons
+      add(body, new THREE.BoxGeometry(0.3, 0.06, 0.2), redMat, -0.3, 0.9, -0.11);
+      add(body, new THREE.BoxGeometry(0.3, 0.06, 0.2), blueMat, -0.3, 0.9, 0.11);
+
+      // Quad annular repulsor thrusters (hover propulsion)
+      [[0.78, 0.45], [0.78, -0.45], [-0.78, 0.45], [-0.78, -0.45]].forEach(([x, z]) => {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 8, 18), cyan);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.set(x, 0.13, z);
+        g.add(ring);
       });
 
-      const textTex = createPoliceTextTexture();
-      const textMat = new THREE.MeshBasicMaterial({ map: textTex });
-      const sideA = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.27), textMat);
-      sideA.position.set(0, 0.42, 0.49);
-      const sideB = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.27), textMat);
-      sideB.position.set(0, 0.42, -0.49);
+      // Hull livery & municipal signage
+      const textMat = new THREE.MeshBasicMaterial({ map: createPoliceTextTexture(), toneMapped: false });
+      const sideA = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.3), textMat);
+      sideA.position.set(-0.1, 0.41, 0.49);
+      const sideB = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.3), textMat);
+      sideB.position.set(-0.1, 0.41, -0.49);
       sideB.rotation.y = Math.PI;
-      g.add(sideA, sideB);
+      body.add(sideA, sideB);
       return g;
     }
 
@@ -4576,7 +4860,7 @@
       tex.colorSpace = THREE.SRGBColorSpace;
       const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
       const g = new THREE.Group();
-      [-1, 1].forEach((s) => { // две наклонные пластины: «палатка»
+      [-1, 1].forEach((s) => { // Dual angled placards (A-frame tent)
         const pl = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.2), mat);
         pl.position.set(0, 0.1, s * 0.04);
         pl.rotation.x = -s * 0.35;
@@ -4615,13 +4899,13 @@
       islandGroup.add(m);
     }
 
-    // ---- Анимации людей ----
+    // ---- NPC Behavioral Animation Controllers ----
     function animateTalking(c, seed = 0) {
       const p = c.userData.parts;
       const base = c.userData.update;
       c.userData.update = (t) => {
         base(t);
-        const burst = Math.max(0, Math.sin(t * 0.9 + seed)); // периоды «говорит»
+        const burst = Math.max(0, Math.sin(t * 0.9 + seed)); // Speech articulation cadence
         const wave = Math.sin(t * 6 + seed * 2) * 0.15 * burst;
         p.armR.upper.rotation.set(-0.5 - 0.7 * burst, 0, -0.15);
         p.armR.fore.rotation.x = -0.5 - 0.6 * burst + wave;
@@ -4629,6 +4913,7 @@
       };
     }
 
+    // Interrogation officer note-taking cycle: takes notes, lowers clipboard to listen & nod, resumes writing.
     function animateNotetaker(c) {
       const p = c.userData.parts;
       const base = c.userData.update;
@@ -4640,11 +4925,17 @@
       p.armL.fore.add(book);
       c.userData.update = (t) => {
         base(t);
-        p.armL.upper.rotation.set(-1.0, 0, 0.1);
-        p.armL.fore.rotation.x = -1.3;
-        p.armR.upper.rotation.set(-1.0, 0, -0.1);
-        p.armR.fore.rotation.x = -1.1 + Math.sin(t * 7) * 0.08; // пишет
-        c.userData.headPitch = Math.sin(t * 0.6) > 0.3 ? 0.3 : 0.0; // то в блокнот, то на свидетеля
+        const cyc = t % 10;
+        let k;
+        if (cyc < 5.5) k = 1; // Writing state
+        else if (cyc < 6.3) k = 1 - (cyc - 5.5) / 0.8; // Lowering clipboard
+        else if (cyc < 8.5) k = 0; // Listening & nodding
+        else k = (cyc - 8.5) / 1.5; // Resuming clipboard posture
+        const e = k * k * (3 - 2 * k);
+        const write = Math.sin(t * 7) * 0.12 * e;
+        setArmPose(p, 'L', 0.12 + 0.88 * e, 0.35 + 1.95 * e, 0.1);
+        setArmPose(p, 'R', 0.12 + 0.88 * e, 0.35 + 1.75 * e + write, -0.1);
+        c.userData.headPitch = 0.3 * e + (1 - e) * (0.1 + Math.sin(t * 2.2) * 0.08); // Focus on notebook vs conversational nod
       };
     }
 
@@ -4661,7 +4952,7 @@
       };
     }
 
-    function poseBentOver(c) { // склонился над телом
+    function poseBentOver(c) { // Stooped forensic inspection posture
       const p = c.userData.parts;
       p.body.rotation.x = 0.9;
       p.armL.upper.rotation.set(-1.25, 0, -0.12);
@@ -4685,11 +4976,164 @@
       return best;
     }
 
+    // Victim form: beveled anatomical silhouette under mortuary sheet with procedural folds.
+    // Outlined with an emissive cybernetic forensic chalk cordon for silhouette readability.
+    function addCoveredBody(x, z, rotY) {
+      const g = new THREE.Group();
+      g.position.set(x, 0.03, z);
+      g.rotation.y = rotY;
+      const L = 1.75;
+      const w = (s) => {
+        if (s < 0.28) return 0.13 * Math.sqrt(Math.max(0, 1 - Math.pow((s - 0.14) / 0.14, 2))); // Cranium
+        if (s < 0.36) return 0.07 + (s - 0.28) * 0.9; // Cervical curve
+        if (s < 0.48) return 0.14 + (s - 0.36) * 1.1; // Clavicle & shoulders
+        if (s < 1.0) return 0.27 - (s - 0.48) * 0.12; // Torso
+        if (s < 1.15) return 0.21 + (s - 1.0) * 0.1; // Pelvis
+        return Math.max(0.1, 0.225 - (s - 1.15) * 0.2); // Lower extremities
+      };
+      const N = 48;
+      const pts = [];
+      for (let i = 0; i <= N; i++) { const s = (i / N) * L; pts.push(new THREE.Vector2(w(s), s)); }
+      for (let i = N - 1; i >= 1; i--) { const s = (i / N) * L; pts.push(new THREE.Vector2(-w(s), s)); }
+      const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts), {
+        depth: 0.04, bevelEnabled: true, bevelThickness: 0.06, bevelSize: 0.045, bevelSegments: 4, curveSegments: 8
+      });
+      geo.rotateX(-Math.PI / 2);
+      geo.translate(0, 0.06, L / 2);
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) { // Cloth drape creases on upper surface
+        if (pos.getY(i) > 0.07) {
+          const fx = pos.getX(i);
+          const fz = pos.getZ(i);
+          pos.setY(i, pos.getY(i) + 0.012 * Math.sin(fx * 38 + fz * 11) + 0.008 * Math.sin(fz * 27 + 1.3));
+        }
+      }
+      geo.computeVertexNormals();
+      const sheet = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xd7dce3, roughness: 0.9 }));
+      sheet.castShadow = true;
+      g.add(sheet);
+
+      // Emissive holographic chalk contour
+      const outline = [];
+      for (let i = 0; i <= N; i++) { const s = (i / N) * L; outline.push(new THREE.Vector3(w(s) * 1.3 + 0.06, 0.025, L / 2 - s * 1.04)); }
+      for (let i = N - 1; i >= 1; i--) { const s = (i / N) * L; outline.push(new THREE.Vector3(-w(s) * 1.3 - 0.06, 0.025, L / 2 - s * 1.04)); }
+      const curve = new THREE.CatmullRomCurve3(outline, true);
+      const ring = new THREE.Mesh(
+        new THREE.TubeGeometry(curve, 160, 0.012, 6, true),
+        new THREE.MeshBasicMaterial({ color: 0x00f3ff, toneMapped: false })
+      );
+      g.add(ring);
+
+      // Footwear protruding from beneath mortuary shroud
+      const shoe = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.8 });
+      [-0.08, 0.08].forEach((sx) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.14), shoe);
+        m.position.set(sx, 0.045, -L / 2 - 0.03);
+        g.add(m);
+      });
+      islandGroup.add(g);
+    }
+
+    // Forensic specialist kneeling stance: torso pitched forward, left arm scanning over subject,
+    // right arm periodically stowing evidence into thigh-mounted utility kit.
+    function kneelAndSearch(c) {
+      const p = c.userData.parts;
+      c.position.y -= 0.35;
+      p.legL.thigh.rotation.x = -1.3;
+      p.legL.shin.rotation.x = 1.3;
+      p.legR.thigh.rotation.x = -0.3;
+      p.legR.shin.rotation.x = 1.8;
+      p.body.rotation.x = 1.0;
+      c.userData.headPitch = -0.5;
+      const base = c.userData.update;
+      c.userData.update = (t) => {
+        base(t);
+        const sweep = Math.sin(t * 1.7);
+        setArmPose(p, 'L', 0.15 + 0.1 * sweep, 0.15 + 0.1 * sweep, 0.25 * Math.sin(t * 1.7 + 1));
+        const cyc = t % 8;
+        const k = cyc < 4 ? 0 : cyc < 5 ? cyc - 4 : cyc < 6.2 ? 1 : cyc < 7.2 ? 1 - (cyc - 6.2) : 0;
+        const e = k * k * (3 - 2 * k);
+        setArmPose(p, 'R', 0.15 + 0.7 * e, 0.15 + 1.1 * e, -0.1);
+      };
+    }
+
+    // SLR camera prop (body, optic cylinder, strobe unit, ergonomic grip) mounted to forearm.
+    // Flash discharges conditionally once raised to eye level. Lens maintains forward gaze orientation.
+    function makeCameraProp() {
+      const g = new THREE.Group();
+      const bodyM = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.5, metalness: 0.4 });
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.07), bodyM));
+      const lens = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.035, 0.04, 0.06, 12),
+        new THREE.MeshStandardMaterial({ color: 0x05070c, roughness: 0.2, metalness: 0.8 })
+      );
+      lens.rotation.x = Math.PI / 2;
+      lens.position.z = 0.065;
+      g.add(lens);
+      const flashUnit = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.03, 0.03),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
+      );
+      flashUnit.position.set(0.05, 0.065, 0);
+      g.add(flashUnit);
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.05), bodyM);
+      grip.position.set(-0.06, -0.04, 0);
+      g.add(grip);
+      return g;
+    }
+
+    function setupPhotographer(photographer) {
+      const pp = photographer.userData.parts;
+      const cam = makeCameraProp();
+      cam.position.y = -pp.armR.fore.userData.total;
+      pp.armR.fore.add(cam);
+      const flashSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: getGlowTex(), color: 0xffffff, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+      }));
+      flashSprite.scale.set(1.0, 1.0, 1);
+      flashSprite.position.set(0.05, 0.065, 0.08);
+      cam.add(flashSprite);
+
+      let flash = 0;
+      let nextFlash = 0;
+      let lastT = null;
+      const ease = (obj, key, target, k = 0.12) => { obj[key] += (target - obj[key]) * k; };
+      const photoAction = (t, p) => {
+        ease(p.body.rotation, 'x', 0.1);
+        ease(p.armR.upper.rotation, 'x', -1.3);
+        ease(p.armR.fore.rotation, 'x', -1.0);
+        ease(p.armR.upper.rotation, 'z', -0.2);
+        ease(p.armL.upper.rotation, 'x', -1.3);
+        ease(p.armL.fore.rotation, 'x', -1.0);
+        ease(p.armL.upper.rotation, 'z', 0.45);
+        // Discharge strobe once camera achieves ocular alignment
+        if (p.armR.upper.rotation.x < -1.2 && t > nextFlash) {
+          flash = 1;
+          nextFlash = t + 2.2 + Math.random() * 0.8;
+        }
+      };
+      propUpdates.push((t) => {
+        const dt = lastT === null ? 0 : Math.min(0.1, t - lastT);
+        lastT = t;
+        flash = Math.max(0, flash - dt * 6);
+        flashSprite.material.opacity = flash;
+        cam.rotation.x = -(pp.body.rotation.x + pp.armR.upper.rotation.x + pp.armR.fore.rotation.x);
+      });
+      const faceBody = -Math.PI / 2;
+      makeWalker(photographer, [
+        { x: 0.05, z: -0.6, wait: 2.6, face: faceBody, action: photoAction },
+        { x: 0.05, z: 0.3, wait: 2.6, face: faceBody, action: photoAction },
+        { x: 0.05, z: 1.2, wait: 2.6, face: faceBody, action: photoAction },
+        { x: 0.05, z: 0.3, wait: 0.5, face: faceBody }
+      ], { speed: 0.7 });
+    }
+
     function buildPoliceScene() {
       if (!POLICE_ENABLED) return;
       const roadY = 0.03;
 
-      // --- Мигалки: общие материалы и две настоящие лампы ---
+      // --- Emergency Strobes: Shared materials & dual point lights ---
       const redMat = new THREE.MeshBasicMaterial({ color: 0xff1a2d, toneMapped: false });
       const blueMat = new THREE.MeshBasicMaterial({ color: 0x2a5bff, toneMapped: false });
 
@@ -4701,6 +5145,10 @@
       carB.position.set(2.0, 0, 1.0);
       carB.rotation.y = Math.PI / 2 + 0.15;
       islandGroup.add(carB);
+
+      // Undercarriage repulsor glow projection for hovering cruisers
+      glowDecal(islandGroup, -0.8, -3.3, 3.2, 0x00f3ff, 0.3, 0.03);
+      glowDecal(islandGroup, 2.0, 1.0, 3.2, 0x00f3ff, 0.3, 0.03);
 
       const redLight = new THREE.PointLight(0xff2030, 0, 14, 1.8);
       redLight.position.set(-0.9, 1.7, -3.3);
@@ -4715,7 +5163,7 @@
         [glowDecal(islandGroup, 2.0, 1.0, 4.5, 0xff1a2d, 0, 0.035), 'r'],
         [glowDecal(islandGroup, 2.0, 1.0, 4.5, 0x2a5bff, 0, 0.036), 'b']
       ];
-      const rate = REDUCED_MOTION ? 0.4 : 1.2; // плавные импульсы, без резкого строба
+      const rate = REDUCED_MOTION ? 0.4 : 1.2; // Smooth sine pulse rate avoiding harsh strobe flickering
       propUpdates.push((t) => {
         const s = Math.sin(t * Math.PI * 2 * rate);
         const r = Math.max(0, s);
@@ -4727,25 +5175,10 @@
         decals.forEach(([d, kind]) => { d.material.opacity = 0.55 * (kind === 'r' ? r : b); });
       });
 
-      // --- Тело под простынёй (без крови, только очертания и ботинки) ---
-      const sheetMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, roughness: 0.65 });
-      const shoeMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.8 });
-      const sheet = new THREE.Group();
-      sheet.position.set(-0.9, roadY, 0.2);
-      sheet.rotation.y = 0.15;
-      const part = (geo, mat, x, y, z) => {
-        const m = new THREE.Mesh(geo, mat);
-        m.position.set(x, y, z);
-        sheet.add(m);
-        return m;
-      };
-      part(new THREE.BoxGeometry(0.46, 0.13, 0.8), sheetMat, 0, 0.095, 0.1);
-      part(new THREE.SphereGeometry(0.13, 10, 8), sheetMat, 0, 0.1, -0.42).scale.set(1, 0.8, 1.1);
-      part(new THREE.BoxGeometry(0.3, 0.08, 0.5), sheetMat, 0, 0.07, 0.72);
-      [-0.08, 0.08].forEach((x) => part(new THREE.BoxGeometry(0.1, 0.05, 0.14), shoeMat, x, 0.045, 1.0));
-      islandGroup.add(sheet);
+      // --- Mortuary sheet diorama (non-visceral silhouette with footwear) ---
+      addCoveredBody(-0.9, 0.2, Math.PI + 0.15);
 
-      // --- Маркеры с номерами и ограждение лентой ---
+      // --- Evidence markers & perimeter cordoning tape ---
       [[1, -1.65, -0.25], [2, -0.35, 0.65], [3, -1.55, 1.15]].forEach(([n, x, z]) => {
         const mk = createEvidenceMarker(n);
         mk.position.set(x, roadY, z);
@@ -4763,13 +5196,14 @@
       });
       corners.forEach((c, i) => addTape(c, corners[(i + 1) % 4]));
 
-      // --- Люди ---
+      // --- Personnel Instantiate & Staging ---
       const uniform = (extra = {}) => createCitizen({
         coat: 0x0f1a33, trim: 0x7dd3fc, hood: false, visor: false,
-        hat: 'cap', hatColor: 0x0b1226, glowTrim: true, ...extra
+        hat: 'cap', hatColor: 0x0b1226, glowTrim: true, backStripe: false, ...extra
       });
       const whiteSuit = (extra = {}) => createCitizen({
-        coat: 0xf1f5f9, trim: 0xfacc15, hood: true, visor: false, mask: true, ...extra
+        coat: 0xf1f5f9, trim: 0x7ffcff, hood: true, visor: true, mask: 'respirator',
+        backStripe: false, ...extra
       });
       const place = (c, x, z, rotY) => {
         c.position.set(x, roadY, z);
@@ -4780,9 +5214,9 @@
         return c;
       };
 
-      // Двое разговаривают у машины A (один в форме, второй детектив в плаще и федоре)
+      // Tactical officer & plainclothes trench-coat detective conversing beside Cruiser A
       const cop1 = place(uniform(), -0.35, -2.35, 1.4);
-      addBackEmblem(cop1, '警', '#9ad8ff');
+      addUniformEmblems(cop1, 'cop');
       animateTalking(cop1, 0);
       const detective = place(createCitizen({
         coat: 0xa8865a, trim: 0xfacc15, hood: false, visor: false, longCoat: true,
@@ -4790,58 +5224,26 @@
       }), 0.45, -2.1, -1.5);
       animateTalking(detective, 2.0);
 
-      // Допрос свидетельницы: коп стоит на дороге у бордюра, девушка на тротуаре
+      // Witness deposition: patrol officer standing roadside questioning pedestrian on sidewalk
       const cop3 = place(uniform(), -2.35, 3.1, -Math.PI / 2);
+      addUniformEmblems(cop3, 'cop');
       animateNotetaker(cop3);
       const witness = findCitizenNear(-3.3, 3.0);
       if (witness) {
-        witness.rotation.y = Math.PI / 2; // лицом к копу
+        witness.rotation.y = Math.PI / 2; // Face toward interrogating officer
         animateGesturing(witness, 1.0);
       }
 
-      // Криминалист склонился над телом
+      // Forensic technician kneeling over investigation site
       const tech = place(whiteSuit(), -1.9, 0.55, Math.PI / 2);
-      poseBentOver(tech);
+      kneelAndSearch(tech);
+      addUniformEmblems(tech, 'tech');
 
-      // Фотограф ходит вдоль места и снимает со вспышкой
+      // Crime scene photographer patrolling waypoint track with camera flash
       const photographer = whiteSuit();
       place(photographer, 0.05, -0.6, 0);
-      const pp = photographer.userData.parts;
-      const flashSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: getGlowTex(), color: 0xffffff, transparent: true, opacity: 0,
-        blending: THREE.AdditiveBlending, depthWrite: false, fog: false
-      }));
-      flashSprite.scale.set(1.2, 1.2, 1);
-      flashSprite.position.set(0, 0, 0.3);
-      pp.head.add(flashSprite);
-      const cam = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x111827 }));
-      cam.position.set(0, -0.02, 0.2);
-      pp.head.add(cam);
-
-      let flash = 0;
-      let nextFlash = 0;
-      let lastT = null;
-      const photoAction = (t, p) => {
-        p.body.rotation.x = 0.1;
-        p.armL.upper.rotation.set(-1.35, 0, -0.2);
-        p.armL.fore.rotation.x = -1.7;
-        p.armR.upper.rotation.set(-1.35, 0, 0.2);
-        p.armR.fore.rotation.x = -1.7;
-        if (t > nextFlash) { flash = 1; nextFlash = t + 2.2 + Math.random() * 0.8; }
-      };
-      propUpdates.push((t) => {
-        const dt = lastT === null ? 0 : Math.min(0.1, t - lastT);
-        lastT = t;
-        flash = Math.max(0, flash - dt * 6);
-        flashSprite.material.opacity = flash;
-      });
-      const faceBody = -Math.PI / 2; // лицом на запад (к телу)
-      makeWalker(photographer, [
-        { x: 0.05, z: -0.6, wait: 2.2, face: faceBody, action: photoAction },
-        { x: 0.05, z: 0.3, wait: 2.2, face: faceBody, action: photoAction },
-        { x: 0.05, z: 1.2, wait: 2.2, face: faceBody, action: photoAction },
-        { x: 0.05, z: 0.3, wait: 0.5, face: faceBody }
-      ], { speed: 0.7 });
+      addUniformEmblems(photographer, 'tech');
+      setupPhotographer(photographer);
     }
 
     // Call builders before animate
