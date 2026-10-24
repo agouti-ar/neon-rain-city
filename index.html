@@ -1243,10 +1243,10 @@
       back.rotation.y = Math.PI;
       body.add(back);
       const badge = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.075, 0.085),
+        new THREE.PlaneGeometry(0.11, 0.125), // крупнее, чтобы читалось издалека
         new THREE.MeshBasicMaterial({ map: createBadgeTexture(kind), transparent: true, toneMapped: false })
       );
-      badge.position.set(-0.07, 0.4, 0.113);
+      badge.position.set(-0.075, 0.42, 0.113);
       body.add(badge);
     }
 
@@ -1850,9 +1850,8 @@
     const holo1 = new THREE.Group();
     holo1.position.set(0, 8.0, 0);
 
-    const r1 = new THREE.Mesh(new THREE.RingGeometry(0.7, 0.78, 20), MAT.neonCyan);
-    const r2 = new THREE.Mesh(new THREE.RingGeometry(0.9, 0.98, 20), MAT.neonPink);
-    r2.scale.setScalar(0.8);
+    const r1 = new THREE.Mesh(new THREE.TorusGeometry(0.74, 0.03, 8, 40), MAT.neonCyan);
+    const r2 = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.03, 8, 40), MAT.neonPink);
     r1.rotation.x = Math.PI / 2;
     r2.rotation.y = Math.PI / 2;
     holo1.add(r1);
@@ -1952,6 +1951,7 @@
     dish.rotation.z = 0.55;
     hotelGroup.add(dishStand);
     hotelGroup.add(dish);
+    hotelGroup.remove(dish, dishStand);
 
     // ROOFTOP HOLOGRAM 2: Spinning Wireframe Torus / Helix
     const holo2 = new THREE.Group();
@@ -1964,29 +1964,90 @@
     holo2.add(torusHolo);
     hotelGroup.add(holo2);
 
+    function makeSatDish(R) {
+      const g = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x9aa7b8, roughness: 0.35, metalness: 0.7, side: THREE.DoubleSide
+      });
+      const tMax = 0.7;
+      const Rs = R / Math.sin(tMax);
+      const geo = new THREE.SphereGeometry(Rs, 28, 8, 0, Math.PI * 2, Math.PI - tMax, tMax);
+      geo.translate(0, Rs, 0); // полюс чаши в начале координат, чаша открыта вверх
+      const dish = new THREE.Mesh(geo, mat);
+      dish.castShadow = true;
+      const depth = Rs * (1 - Math.cos(tMax));
+
+      const back = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.22, 8), MAT.metalPipe);
+      back.position.y = -0.11;
+
+      // Вынесенный облучатель: штанга от нижнего края чаши к фокусу над центром
+      const rim = new THREE.Vector3(0, depth, -R);
+      const focus = new THREE.Vector3(0, depth + R * 0.75, R * 0.15);
+      const dir = focus.clone().sub(rim);
+      const len = dir.length();
+      dir.normalize();
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, len, 6), MAT.metalPipe);
+      arm.position.copy(rim.clone().add(focus).multiplyScalar(0.5));
+      arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      const lnb = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.09, 10), MAT.metalPipe);
+      lnb.position.copy(focus);
+      lnb.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(0, depth, 0).sub(focus).normalize()
+      );
+      g.add(dish, back, arm, lnb);
+      return g;
+    }
+
+    function addSatelliteCluster() {
+      const g = new THREE.Group();
+      g.position.set(-0.95, 5.2, 0.3);
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 1.3, 8), MAT.metalPipe);
+      mast.position.y = 0.65;
+      g.add(mast);
+      // [радиус, высота на мачте, поворот, наклон к небу]
+      [[0.46, 0.95, 0.9, 1.0], [0.3, 0.55, -0.9, 0.9], [0.22, 1.2, 2.3, 1.1]].forEach(([R, y, yaw, tilt]) => {
+        const dish = makeSatDish(R);
+        dish.rotation.order = 'YXZ';
+        dish.rotation.y = yaw;
+        dish.rotation.x = tilt;
+        const off = 0.1 + R * 0.45;
+        dish.position.set(Math.sin(yaw) * off, y, Math.cos(yaw) * off);
+        const from = new THREE.Vector3(0, y - 0.05, 0);
+        const to = dish.position.clone();
+        const d = to.clone().sub(from);
+        const link = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, d.length(), 6), MAT.metalPipe);
+        link.position.copy(from.clone().add(to).multiplyScalar(0.5));
+        link.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+        g.add(dish, link);
+      });
+      hotelGroup.add(g);
+    }
+
     function addHotelRadar() {
-      hotelGroup.remove(holo2);
+      hotelGroup.remove(holo2); // старое парящее кольцо остаётся убранным
       const g = new THREE.Group();
       g.position.set(1.25, 5.2, 0.75);
-      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 1.1, 8), MAT.metalPipe);
-      mast.position.y = 0.55;
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.18, 12), MAT.metalPipe);
+      base.position.y = 0.09;
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.5, 8), MAT.metalPipe);
+      mast.position.y = 0.43;
       const pivot = new THREE.Group();
-      pivot.position.y = 1.1;
-      const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.06, 0.1, 16), MAT.metalPipe);
-      dish.rotation.z = 0.6;
-      dish.position.x = 0.12;
-      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 6), MAT.metalPipe);
-      arm.rotation.z = Math.PI / 2;
-      arm.position.x = 0.05;
-      const tip = new THREE.Mesh(
-        new THREE.SphereGeometry(0.03, 8, 6),
-        new THREE.MeshBasicMaterial({ color: 0x00f3ff, toneMapped: false })
-      );
-      tip.position.set(0.28, 0.1, 0);
-      pivot.add(dish, arm, tip);
-      g.add(mast, pivot);
+      pivot.position.y = 0.72;
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 0.04), MAT.metalPipe);
+      bar.position.y = 0.11;
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.1), MAT.timberDark);
+      hood.position.y = 0.0;
+      const tipMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, toneMapped: false });
+      [-0.45, 0.45].forEach((x) => {
+        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.05), tipMat);
+        tip.position.set(x, 0.11, 0);
+        pivot.add(tip);
+      });
+      pivot.add(bar, hood);
+      g.add(base, mast, pivot);
       hotelGroup.add(g);
-      propUpdates.push((t) => { pivot.rotation.y = t * 0.8; });
+      propUpdates.push((t) => { pivot.rotation.y = t * 1.1; });
     }
     addHotelRadar();
 
@@ -3131,16 +3192,13 @@
     // ============================================================
     // Service Alley: rear entrance, flickering industrial luminaire, dumpster, debris, street cat, utility cabling
     // ============================================================
-    function createCat() {
+    function createCatV2() {
       const g = new THREE.Group();
       const fur = new THREE.MeshStandardMaterial({ color: 0x1b1b24, emissive: 0x0a0a14, roughness: 0.8 });
       const eyeMat = new THREE.MeshBasicMaterial({ color: 0x7dff6b, toneMapped: false });
-
       const body = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), fur);
       body.scale.set(1, 1.25, 1);
       body.position.y = 0.16;
-      g.add(body);
-
       const head = new THREE.Group();
       head.position.y = 0.34;
       head.add(new THREE.Mesh(new THREE.SphereGeometry(0.085, 10, 8), fur));
@@ -3155,23 +3213,247 @@
         head.add(e);
         return e;
       });
-      g.add(head);
-
       const tail = new THREE.Group();
       tail.position.set(0, 0.06, -0.1);
       const tailMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.22, 4, 6), fur);
       tailMesh.rotation.x = Math.PI / 2;
       tailMesh.position.z = -0.12;
       tail.add(tailMesh);
-      g.add(tail);
+      g.add(body, head, tail);
+      g.traverse((m) => { m.userData.noMerge = true; });
+      g.userData.parts = { body, head, tail, eyes };
+      return g;
+    }
 
-      g.userData.update = (t) => {
+    // Звон разбитого стекла: шумовой удар + несколько высоких коротких «звонков». Только если звук включён.
+    function playGlassBreak(pos) {
+      if (!audioCtx || !audioOn || !audioExtras) return;
+      const ctx = audioCtx;
+      const now = ctx.currentTime;
+      const pan = makePanner(ctx, pos.x, pos.y, pos.z, 3);
+      pan.connect(masterGain);
+      const src = ctx.createBufferSource();
+      src.buffer = audioExtras.noise;
+      src.loop = true;
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 2500;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.5, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      src.connect(hp);
+      hp.connect(g);
+      g.connect(pan);
+      src.start(now, Math.random() * 1.5, 0.3);
+      for (let i = 0; i < 7; i++) {
+        const t0 = now + 0.03 + i * 0.045 + Math.random() * 0.03;
+        const o = ctx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = 2200 + Math.random() * 3800;
+        const og = ctx.createGain();
+        og.gain.setValueAtTime(0, t0);
+        og.gain.linearRampToValueAtTime(0.08, t0 + 0.004);
+        og.gain.exponentialRampToValueAtTime(0.0005, t0 + 0.22);
+        o.connect(og);
+        og.connect(pan);
+        o.start(t0);
+        o.stop(t0 + 0.25);
+      }
+    }
+
+    function setupCatScene(hotel) {
+      const lid = new THREE.Vector3(-0.5, 0.96, -2.7);
+      const behind = new THREE.Vector3(-0.9, 0.0, -3.75);
+      const cat = createCatV2();
+      cat.position.copy(lid);
+      cat.rotation.y = 0.5;
+      hotel.add(cat);
+      citizens.push(cat);
+      const { body, head, tail, eyes } = cat.userData.parts;
+
+      // Миска с молоком на крышке перед котом
+      const bowl = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.045, 0.035, 12),
+        new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.5 })
+      );
+      bowl.position.set(-0.37, 0.98, -2.45);
+      const milk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.05, 0.005, 12),
+        new THREE.MeshBasicMaterial({ color: 0xf8fafc, toneMapped: false })
+      );
+      milk.position.set(-0.37, 1.0, -2.45);
+      hotel.add(bowl, milk);
+
+      // Бутылка и осколки
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0x1f7a3a, emissive: 0x0b3a1a, roughness: 0.2, metalness: 0.1 });
+      const bottle = new THREE.Group();
+      bottle.add(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.16, 8), glassMat));
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.025, 0.09, 8), glassMat);
+      neck.position.y = 0.125;
+      bottle.add(neck);
+      bottle.visible = false;
+      bottle.traverse((m) => { m.userData.noMerge = true; });
+      hotel.add(bottle);
+
+      const shards = [];
+      for (let i = 0; i < 14; i++) {
+        const s = new THREE.Mesh(new THREE.TetrahedronGeometry(0.02 + Math.random() * 0.02), glassMat);
+        s.visible = false;
+        s.userData.noMerge = true;
+        hotel.add(s);
+        shards.push({ mesh: s, v: new THREE.Vector3(), life: 0 });
+      }
+
+      const from = new THREE.Vector3(-0.4, 3.15, -1.95); // тёплое окно на задней стене отеля
+      const to = new THREE.Vector3(-0.95, 0.99, -3.05);  // крышка контейнера
+      const T = 0.7;
+      const G = 9.8;
+      const vx = (to.x - from.x) / T;
+      const vz = (to.z - from.z) / T;
+      const vy = (to.y - from.y + 0.5 * G * T * T) / T;
+
+      let state = 'sit';
+      let stateT = 0;
+      let nextEvent = 28;
+      let bottleT = -1;
+      let impactDone = false;
+      let reactAt = -1;
+      let goneFor = 20;
+      let puff = 1;
+      let lastT = null;
+      const smooth = (x) => x * x * (3 - 2 * x);
+      const arc = (a, b, u, h) => {
+        cat.position.set(
+          a.x + (b.x - a.x) * u,
+          a.y + (b.y - a.y) * u + h * 4 * u * (1 - u),
+          a.z + (b.z - a.z) * u
+        );
+      };
+      const facing = (a, b) => Math.atan2(b.x - a.x, b.z - a.z);
+
+      const idle = (t) => {
         tail.rotation.y = Math.sin(t * 1.4) * 0.5;
-        head.rotation.y = Math.sin(t * 0.35) * 0.5;
         const blink = t % 5 < 0.12 ? 0.1 : 1;
         eyes.forEach((e) => (e.scale.y = blink));
+        // Иногда ест из миски: голова вниз, лёгкое жевание
+        const cyc = t % 16;
+        const k = cyc > 11 && cyc < 14.5 ? smooth(Math.min(1, Math.min(cyc - 11, 14.5 - cyc) / 0.6)) : 0;
+        head.rotation.y = Math.sin(t * 0.35) * 0.5 * (1 - k);
+        head.rotation.x = 0.9 * k + Math.sin(t * 12) * 0.05 * k;
+        head.position.set(0, 0.34 - 0.1 * k, 0.1 * k);
       };
-      return g;
+
+      cat.userData.update = (t) => {
+        const dt = lastT === null ? 0 : Math.min(0.1, t - lastT);
+        lastT = t;
+
+        // --- Бутылка ---
+        if (bottleT < 0 && state === 'sit' && t >= nextEvent) {
+          bottleT = t;
+          impactDone = false;
+          bottle.visible = true;
+        }
+        if (bottleT >= 0) {
+          const u = t - bottleT;
+          if (u < T) {
+            bottle.position.set(from.x + vx * u, from.y + vy * u - 0.5 * G * u * u, from.z + vz * u);
+            bottle.rotation.set(u * 9, 0, u * 6);
+          } else if (!impactDone) {
+            impactDone = true;
+            bottle.visible = false;
+            shards.forEach((s) => {
+              s.mesh.position.copy(to);
+              s.mesh.visible = true;
+              s.mesh.scale.setScalar(1);
+              s.v.set((Math.random() - 0.5) * 2.4, 0.8 + Math.random() * 1.6, (Math.random() - 0.5) * 2.4);
+              s.life = 0;
+            });
+            playGlassBreak(hotel.localToWorld(to.clone()));
+            reactAt = t + 0.12;
+          }
+        }
+        // --- Осколки: падают, отскакивают, через пару секунд тают ---
+        shards.forEach((s) => {
+          if (!s.mesh.visible) return;
+          s.v.y -= G * dt;
+          s.mesh.position.addScaledVector(s.v, dt);
+          s.mesh.rotation.x += dt * 5;
+          s.mesh.rotation.z += dt * 3;
+          const p = s.mesh.position;
+          const onLid = p.x > -1.6 && p.x < -0.2 && p.z > -3.15 && p.z < -2.45;
+          const floor = onLid ? 0.97 : 0.02;
+          if (p.y < floor) {
+            p.y = floor;
+            s.v.y *= -0.3;
+            s.v.x *= 0.6;
+            s.v.z *= 0.6;
+          }
+          s.life += dt;
+          if (s.life > 2) {
+            const k = Math.max(0, 1 - (s.life - 2) / 2.5);
+            s.mesh.scale.setScalar(k);
+            if (k <= 0.01) s.mesh.visible = false;
+          }
+        });
+
+        // --- Кот ---
+        if (state === 'sit') {
+          idle(t);
+          if (reactAt > 0 && t >= reactAt) { state = 'startle'; stateT = t; reactAt = -1; }
+        } else if (state === 'startle') {
+          const u = Math.min(1, (t - stateT) / 0.35);
+          puff = 1 + 0.3 * smooth(Math.min(1, u / 0.3)); // шерсть дыбом
+          cat.scale.setScalar(puff);
+          body.scale.set(0.9, 1.25 + 0.15 * u, 0.9);
+          tail.scale.set(1.8, 1.8, 1);
+          tail.rotation.x = -0.9 * u;
+          head.rotation.set(-0.3, 0, 0);
+          if (u >= 1) { state = 'jump'; stateT = t; }
+        } else if (state === 'jump') {
+          const u = Math.min(1, (t - stateT) / 0.55);
+          arc(lid, behind, u, 0.4);
+          cat.rotation.y = facing(lid, behind);
+          if (u >= 1) { state = 'vanish'; stateT = t; }
+        } else if (state === 'vanish') {
+          const u = Math.min(1, (t - stateT) / 0.3);
+          cat.scale.setScalar(Math.max(0.001, puff * (1 - u)));
+          if (u >= 1) {
+            cat.visible = false;
+            state = 'gone';
+            stateT = t;
+            goneFor = 18 + Math.random() * 14;
+          }
+        } else if (state === 'gone') {
+          if (t - stateT > goneFor) {
+            state = 'return';
+            stateT = t;
+            cat.position.copy(behind);
+            cat.rotation.y = facing(behind, lid);
+            cat.scale.setScalar(0.01);
+            cat.visible = true;
+            body.scale.set(1, 1.25, 1); // шерсть снова обычная
+            tail.scale.set(1, 1, 1);
+            tail.rotation.x = 0;
+            head.rotation.set(0, 0, 0);
+            head.position.set(0, 0.34, 0);
+          }
+        } else if (state === 'return') {
+          const u = t - stateT;
+          if (u < 0.3) {
+            cat.scale.setScalar(Math.max(0.01, smooth(u / 0.3)));
+          } else if (u < 0.9) {
+            cat.scale.setScalar(1);
+          } else if (u < 1.45) {
+            arc(behind, lid, (u - 0.9) / 0.55, 0.45);
+          } else {
+            cat.position.copy(lid);
+            cat.rotation.y = 0.5;
+            state = 'sit';
+            nextEvent = t + 50 + Math.random() * 30;
+            bottleT = -1;
+          }
+        }
+      };
     }
 
     function wire(a, b, sag = 0.5, r = 0.018) {
@@ -3240,12 +3522,7 @@
       [-0.5, 0, 0.5].forEach((x) => add(new THREE.BoxGeometry(0.05, 0.8, 0.03), MAT.metalPipe, x, 0.45, 0.41, dumpster));
       g.add(dumpster);
 
-      // Street cat perched on dumpster lid (facing streetward)
-      const cat = createCat();
-      cat.position.set(-0.5, 0.96, -2.7);
-      cat.rotation.y = 0.5;
-      g.add(cat);
-      propUpdates.push(cat.userData.update);
+      setupCatScene(g);
 
       // Refuse bags (specular wet polymer material)
       const bagMat = new THREE.MeshStandardMaterial({ color: 0x0b0b12, roughness: 0.22, metalness: 0.05 });
@@ -3517,7 +3794,7 @@
       c.width = W;
       c.height = H;
       const ctx = c.getContext('2d');
-      const cx = 256; // Face projection center on sphere (u = 0.25)
+      const cx = 256;
       const cy = 256;
       ctx.fillStyle = '#f4f7ff';
       ctx.beginPath();
@@ -3527,18 +3804,18 @@
       ctx.lineWidth = 9;
       ctx.lineCap = 'round';
       [-1, 1].forEach((s) => {
-        for (let i = 0; i < 3; i++) { // Whisker marks on cheeks
+        for (let i = 0; i < 3; i++) {
           ctx.beginPath();
           ctx.moveTo(cx + s * 62, cy + 52 + i * 22);
           ctx.lineTo(cx + s * 128, cy + 30 + i * 32);
           ctx.stroke();
         }
-        ctx.beginPath(); // Eye-to-temple flourish accent
+        ctx.beginPath();
         ctx.moveTo(cx + s * 32, cy - 36);
         ctx.quadraticCurveTo(cx + s * 92, cy - 62, cx + s * 126, cy - 112);
         ctx.stroke();
       });
-      ctx.fillStyle = '#e11d48'; // Frontal diamond mark
+      ctx.fillStyle = '#e11d48';
       ctx.beginPath();
       ctx.moveTo(cx, cy - 150);
       ctx.lineTo(cx + 22, cy - 108);
@@ -3546,23 +3823,54 @@
       ctx.lineTo(cx - 22, cy - 108);
       ctx.closePath();
       ctx.fill();
-      ctx.shadowColor = '#00f3ff'; // Luminescent ocular slits
-      ctx.shadowBlur = 22;
-      ctx.fillStyle = '#7ffcff';
+      // Схемы на щеках и лбу (бирюзовые дорожки с узлами)
+      ctx.strokeStyle = '#18a8c4';
+      ctx.fillStyle = '#18a8c4';
+      ctx.lineWidth = 4;
       [-1, 1].forEach((s) => {
         ctx.beginPath();
-        ctx.moveTo(cx + s * 28, cy - 22);
-        ctx.quadraticCurveTo(cx + s * 70, cy - 52, cx + s * 100, cy - 38);
-        ctx.quadraticCurveTo(cx + s * 70, cy - 20, cx + s * 28, cy - 22);
-        ctx.fill();
+        ctx.moveTo(cx + s * 40, cy + 100);
+        ctx.lineTo(cx + s * 40, cy + 130);
+        ctx.lineTo(cx + s * 90, cy + 130);
+        ctx.lineTo(cx + s * 90, cy + 90);
+        ctx.stroke();
+        [[40, 100], [90, 90], [90, 130]].forEach(([dx, dy]) => {
+          ctx.beginPath();
+          ctx.arc(cx + s * dx, cy + dy, 6, 0, Math.PI * 2);
+          ctx.fill();
+        });
       });
-      ctx.shadowBlur = 0;
-      ctx.globalCompositeOperation = 'source-atop'; // Scanlines constrained to mask surface
+      ctx.beginPath();
+      ctx.moveTo(cx - 50, cy - 130);
+      ctx.lineTo(cx - 50, cy - 110);
+      ctx.lineTo(cx + 50, cy - 110);
+      ctx.lineTo(cx + 50, cy - 130);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-atop';
       ctx.fillStyle = 'rgba(0, 40, 80, 0.22)';
       for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 2);
       const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = 4;
+      return tex;
+    }
+
+    function createGlyphRingTexture() {
+      const c = document.createElement('canvas');
+      c.width = 1024;
+      c.height = 64;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#7ffcff';
+      ctx.font = 'bold 38px "Yu Gothic", Meiryo, "Segoe UI", sans-serif';
+      ctx.textBaseline = 'middle';
+      const unit = 'キツネ ◆ 見ている ◆ NEO·KOLA ◆ ';
+      let x = 6;
+      while (x < 1024) {
+        ctx.fillText(unit, x, 34);
+        x += ctx.measureText(unit).width;
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
       return tex;
     }
 
@@ -3575,24 +3883,46 @@
       const beamGeo = new THREE.ConeGeometry(0.5, 0.9, 20, 1, true);
       beamGeo.rotateX(Math.PI);
       const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({
-        color: 0x00f3ff, transparent: true, opacity: 0.08,
+        color: 0x00f3ff, transparent: true, opacity: 0.07,
         blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
       }));
       beam.position.y = 0.55;
 
       const head = new THREE.Group();
       head.position.y = 1.05;
+      const tex = createKitsuneTexture();
       const maskMat = new THREE.MeshBasicMaterial({
-        map: createKitsuneTexture(), transparent: true, opacity: 0.92,
+        map: tex, color: new THREE.Color(0.5, 0.75, 0.85), transparent: true, opacity: 0.9,
         side: THREE.DoubleSide, depthWrite: false, toneMapped: false
       });
-      const mask = new THREE.Mesh(new THREE.SphereGeometry(0.42, 32, 24), maskMat);
+      const maskGeo = new THREE.SphereGeometry(0.42, 32, 24);
+      const mask = new THREE.Mesh(maskGeo, maskMat);
       mask.scale.set(0.8, 1.0, 0.55);
       head.add(mask);
 
-      const whiteMat = new THREE.MeshBasicMaterial({ color: 0xcfe9ff, transparent: true, opacity: 0.88, toneMapped: false });
+      // Сетка поверх маски
+      const grid = new THREE.Mesh(
+        new THREE.SphereGeometry(0.44, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.16, toneMapped: false })
+      );
+      grid.scale.set(0.8, 1.0, 0.55);
+      head.add(grid);
+
+      // Призраки для глюка (красный и бирюзовый), обычно скрыты
+      const ghosts = [0xff3355, 0x33f0ff].map((col) => {
+        const gm = new THREE.Mesh(maskGeo, new THREE.MeshBasicMaterial({
+          map: tex, color: col, transparent: true, opacity: 0.4,
+          side: THREE.DoubleSide, depthWrite: false, toneMapped: false
+        }));
+        gm.scale.set(0.8, 1.0, 0.55);
+        gm.visible = false;
+        head.add(gm);
+        return gm;
+      });
+
+      const whiteMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 0.75, 0.85), transparent: true, opacity: 0.88, toneMapped: false });
       const redMat2 = new THREE.MeshBasicMaterial({ color: 0xe11d48, transparent: true, opacity: 0.9, toneMapped: false });
-      [-1, 1].forEach((s) => { // Fox ears (outer auricle and inner shade)
+      [-1, 1].forEach((s) => {
         const ear = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.34, 4), whiteMat);
         ear.position.set(s * 0.2, 0.46, -0.02);
         ear.rotation.z = -s * 0.3;
@@ -3601,7 +3931,7 @@
         inner.rotation.z = -s * 0.3;
         head.add(ear, inner);
       });
-      const snout = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 10), whiteMat); // Muzzle volume
+      const snout = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 10), whiteMat);
       snout.scale.set(0.9, 0.7, 1.4);
       snout.position.set(0, -0.1, 0.3);
       const nose = new THREE.Mesh(
@@ -3611,27 +3941,52 @@
       nose.position.set(0, -0.09, 0.45);
       head.add(snout, nose);
 
-      const ringMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.7, toneMapped: false });
-      const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.01, 6, 36), ringMat);
-      ring1.rotation.x = Math.PI / 2;
-      ring1.position.y = 0.3;
-      const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.01, 6, 36), ringMat);
-      ring2.rotation.x = Math.PI / 2;
-      ring2.position.y = 0.45;
+      // Глаза: отдельные светящиеся элементы
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x7ffcff, toneMapped: false });
+      [-1, 1].forEach((s) => {
+        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.025, 0.02), eyeMat);
+        eye.position.set(s * 0.12, 0.07, 0.235);
+        eye.rotation.z = s * 0.35;
+        head.add(eye);
+      });
 
-      holo.add(base, beam, head, ring1, ring2);
+      // Кольцо с надписью
+      const ring = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.62, 0.62, 0.12, 48, 1, true),
+        new THREE.MeshBasicMaterial({
+          map: createGlyphRingTexture(), transparent: true, opacity: 0.75,
+          side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false
+        })
+      );
+      ring.position.y = 0.25;
+      const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.01, 6, 36), new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.6, toneMapped: false }));
+      ring2.rotation.x = Math.PI / 2;
+      ring2.position.y = 0.05;
+
+      holo.add(base, beam, head, ring, ring2);
       g.add(holo);
 
       const wp = new THREE.Vector3();
       propUpdates.push((t) => {
         head.getWorldPosition(wp);
-        head.lookAt(camera.position.x, wp.y, camera.position.z); // Constrain yaw orientation to active camera
+        head.lookAt(camera.position.x, wp.y, camera.position.z);
         head.position.y = 1.05 + Math.sin(t * 1.5) * 0.03;
-        ring1.rotation.z = t * 1.2;
+        ring.rotation.y = t * 0.6;
         ring2.rotation.z = -t * 0.8;
-        const glitch = Math.sin(t * 1.1) * Math.sin(t * 9.0) > 0.93;
-        maskMat.opacity = glitch ? 0.55 : 0.92;
-        head.scale.x = glitch ? 1.04 : 1;
+        // Глюк системы раз в 6-9 секунд на ~0.25 с: призраки со сдвигом, маска слегка «сплющена»
+        const cyc = t % 7.5;
+        const glitch = cyc < 0.25;
+        ghosts[0].visible = glitch;
+        ghosts[1].visible = glitch;
+        if (glitch) {
+          ghosts[0].position.x = 0.03;
+          ghosts[1].position.x = -0.03;
+          head.scale.set(1.05, 0.96, 1);
+          maskMat.opacity = 0.6;
+        } else {
+          head.scale.set(1, 1, 1);
+          maskMat.opacity = 0.9;
+        }
       });
     }
 
@@ -4769,7 +5124,7 @@
     function createPoliceCar(redMat, blueMat) {
       const g = new THREE.Group();
       const body = new THREE.Group();
-      body.position.y = 0.1; // Hover elevation above roadway
+      body.position.y = 0.1;
       g.add(body);
 
       const black = new THREE.MeshStandardMaterial({
@@ -4789,7 +5144,6 @@
         return m;
       };
 
-      // Lateral fuselage profile (bow pointing +X)
       const sh = new THREE.Shape();
       sh.moveTo(-1.25, 0.15);
       sh.lineTo(1.2, 0.15);
@@ -4816,24 +5170,19 @@
       glassGeo.translate(0, 0, -0.485);
       body.add(new THREE.Mesh(glassGeo, glass));
 
-      // Lateral neon stripe, LED headlights, and tail illumination
       [-0.478, 0.478].forEach((z) => add(body, new THREE.BoxGeometry(2.3, 0.022, 0.01), cyan, 0, 0.26, z));
       add(body, new THREE.BoxGeometry(0.03, 0.035, 0.7), lamp, 1.29, 0.34, 0);
       add(body, new THREE.BoxGeometry(0.03, 0.05, 0.8), tail, -1.29, 0.4, 0);
-
-      // Rooftop emergency strobe: dual split beacons
       add(body, new THREE.BoxGeometry(0.3, 0.06, 0.2), redMat, -0.3, 0.9, -0.11);
       add(body, new THREE.BoxGeometry(0.3, 0.06, 0.2), blueMat, -0.3, 0.9, 0.11);
 
-      // Quad annular repulsor thrusters (hover propulsion)
+      // Боковые юбки и угловые двигатели со светящейся щелью снизу
+      [-0.5, 0.5].forEach((z) => add(body, new THREE.BoxGeometry(1.9, 0.06, 0.04), black, 0, 0.17, z));
       [[0.78, 0.45], [0.78, -0.45], [-0.78, 0.45], [-0.78, -0.45]].forEach(([x, z]) => {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 8, 18), cyan);
-        ring.rotation.x = Math.PI / 2;
-        ring.position.set(x, 0.13, z);
-        g.add(ring);
+        add(g, new THREE.BoxGeometry(0.34, 0.1, 0.2), black, x, 0.17, z);
+        add(g, new THREE.BoxGeometry(0.28, 0.012, 0.16), cyan, x, 0.115, z);
       });
 
-      // Hull livery & municipal signage
       const textMat = new THREE.MeshBasicMaterial({ map: createPoliceTextTexture(), toneMapped: false });
       const sideA = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.3), textMat);
       sideA.position.set(-0.1, 0.41, 0.49);
@@ -4918,24 +5267,54 @@
       const p = c.userData.parts;
       const base = c.userData.update;
       const book = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.14, 0.015),
+        new THREE.BoxGeometry(0.12, 0.16, 0.015),
         new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.8 })
       );
-      book.position.set(0, -p.armL.fore.userData.total, 0.05);
+      book.position.set(0, -p.armL.fore.userData.total, 0);
       p.armL.fore.add(book);
+      const penGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.13, 6);
+      penGeo.translate(0, -0.065, 0);
+      const pen = new THREE.Mesh(penGeo, new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.5 }));
+      pen.position.set(0, -p.armR.fore.userData.total, 0);
+      p.armR.fore.add(pen);
+
+      const Lrest = new THREE.Vector3(-0.22, 0.02, 0.1);
+      const Lwrite = new THREE.Vector3(-0.07, 0.4, 0.25);
+      const Rrest = new THREE.Vector3(0.22, 0.02, 0.1);
+      const Rwrite = new THREE.Vector3(0.05, 0.38, 0.27);
+      const tl = new THREE.Vector3();
+      const tr = new THREE.Vector3();
+      const poleL = _ikDown.clone().add(new THREE.Vector3(-0.4, 0, 0));
+      const poleR = _ikDown.clone().add(new THREE.Vector3(0.4, 0, 0));
+      const qBook = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.5, 0, 0));
+      const qPen = new THREE.Quaternion().setFromUnitVectors(_ikDown, new THREE.Vector3(0.05, -0.6, 0.8).normalize());
+      const foreQ = new THREE.Quaternion();
+
       c.userData.update = (t) => {
         base(t);
         const cyc = t % 10;
         let k;
-        if (cyc < 5.5) k = 1; // Writing state
-        else if (cyc < 6.3) k = 1 - (cyc - 5.5) / 0.8; // Lowering clipboard
-        else if (cyc < 8.5) k = 0; // Listening & nodding
-        else k = (cyc - 8.5) / 1.5; // Resuming clipboard posture
+        if (cyc < 5.5) k = 1; // пишет
+        else if (cyc < 6.3) k = 1 - (cyc - 5.5) / 0.8; // опускает руки
+        else if (cyc < 8.5) k = 0; // слушает
+        else k = (cyc - 8.5) / 1.5; // поднимает блокнот
         const e = k * k * (3 - 2 * k);
-        const write = Math.sin(t * 7) * 0.12 * e;
-        setArmPose(p, 'L', 0.12 + 0.88 * e, 0.35 + 1.95 * e, 0.1);
-        setArmPose(p, 'R', 0.12 + 0.88 * e, 0.35 + 1.75 * e + write, -0.1);
-        c.userData.headPitch = 0.3 * e + (1 - e) * (0.1 + Math.sin(t * 2.2) * 0.08); // Focus on notebook vs conversational nod
+
+        tl.copy(Lrest).lerp(Lwrite, e);
+        tr.copy(Rrest).lerp(Rwrite, e);
+        if (e > 0.8) { // ручка водит по странице
+          tr.x += Math.sin(t * 9) * 0.025 * e;
+          tr.y += Math.sin(t * 6.5 + 1) * 0.012 * e;
+        }
+        solveArmIK(p.armL, tl, poleL);
+        solveArmIK(p.armR, tr, poleR);
+
+        foreQ.copy(p.armL.upper.quaternion).multiply(p.armL.fore.quaternion).invert();
+        book.quaternion.copy(foreQ).multiply(qBook);
+        foreQ.copy(p.armR.upper.quaternion).multiply(p.armR.fore.quaternion).invert();
+        pen.quaternion.copy(foreQ).multiply(qPen);
+
+        c.userData.headPitch = 0.3 * e + (1 - e) * (0.1 + Math.sin(t * 2.2) * 0.08);
       };
     }
 
@@ -5199,7 +5578,7 @@
       // --- Personnel Instantiate & Staging ---
       const uniform = (extra = {}) => createCitizen({
         coat: 0x0f1a33, trim: 0x7dd3fc, hood: false, visor: false,
-        hat: 'cap', hatColor: 0x0b1226, glowTrim: true, backStripe: false, ...extra
+        hat: 'cap', hatColor: 0x0b1226, backStripe: false, ...extra
       });
       const whiteSuit = (extra = {}) => createCitizen({
         coat: 0xf1f5f9, trim: 0x7ffcff, hood: true, visor: true, mask: 'respirator',
@@ -5261,6 +5640,7 @@
     buildPagodaBack();
     addSideWindows();
     addRoofDetails();
+    addSatelliteCluster();
     addPuddles();
     addDrains();
     addStreetLampCone();
