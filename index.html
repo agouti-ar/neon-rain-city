@@ -6059,6 +6059,8 @@
     // Master audio bus & UI controls
 
 
+    // Previous mix: music 1.0, rain 0.2, synth 0.022. Set rain to 0 to mute it.
+    const audioMix = { music: 1.25, rain: 0.035, synth: 0.022 };
     const musicTrack = new Audio('./assets/audio/Tokyo_Midnight_Rain.mp3');
     musicTrack.loop = true;
     musicTrack.preload = 'none';
@@ -6072,7 +6074,10 @@
 
       // Mix the soundtrack with the existing procedural ambience on the same bus.
       const musicSource = audioCtx.createMediaElementSource(musicTrack);
-      musicSource.connect(masterGain);
+      const musicGain = audioCtx.createGain();
+      musicGain.gain.value = audioMix.music;
+      musicSource.connect(musicGain);
+      musicGain.connect(masterGain);
 
       // --- Ambient precipitation: looped band-filtered white noise buffer ---
       const len = audioCtx.sampleRate * 2;
@@ -6091,7 +6096,7 @@
       lp.type = 'lowpass';
       lp.frequency.value = 7000;
       const rainGain = audioCtx.createGain();
-      rainGain.gain.value = 0.2;
+      rainGain.gain.value = audioMix.rain;
 
       noise.connect(hp);
       hp.connect(lp);
@@ -6105,7 +6110,7 @@
       padFilter.frequency.value = 700;
       padFilter.Q.value = 0.7;
       const padGain = audioCtx.createGain();
-      padGain.gain.value = 0.022;
+      padGain.gain.value = audioMix.synth;
       padFilter.connect(padGain);
       padGain.connect(masterGain);
 
