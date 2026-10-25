@@ -6059,11 +6059,20 @@
     // Master audio bus & UI controls
 
 
+    const musicTrack = new Audio('./assets/audio/Tokyo_Midnight_Rain.mp3');
+    musicTrack.loop = true;
+    musicTrack.preload = 'none';
+    let audioTogglePending = false;
+
     function buildAudio() {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       masterGain = audioCtx.createGain();
       masterGain.gain.value = 0;
       masterGain.connect(audioCtx.destination);
+
+      // Mix the soundtrack with the existing procedural ambience on the same bus.
+      const musicSource = audioCtx.createMediaElementSource(musicTrack);
+      musicSource.connect(masterGain);
 
       // --- Ambient precipitation: looped band-filtered white noise buffer ---
       const len = audioCtx.sampleRate * 2;
@@ -6137,6 +6146,10 @@
       };
       window.addEventListener('pointerdown', show);
       window.addEventListener('pointermove', show);
+      window.addEventListener('pointerup', show);
+      window.addEventListener('wheel', show, { passive: true });
+      window.addEventListener('keydown', show);
+      btn.addEventListener('focus', show);
       show();
     }
 
@@ -6160,11 +6173,27 @@
     setupAutoHideAudioButton(soundBtn);
 
     soundBtn.addEventListener('click', async () => {
-      if (!audioCtx) buildAudio();
-      if (audioCtx.state === 'suspended') await audioCtx.resume();
-      audioOn = !audioOn;
-      masterGain.gain.setTargetAtTime(audioOn ? 0.6 : 0, audioCtx.currentTime, 0.4);
-      soundBtn.textContent = audioOn ? '🔊 Audio' : '🔇 Audio';
+      if (audioTogglePending) return;
+      audioTogglePending = true;
+      try {
+        if (!audioCtx) buildAudio();
+        const nextAudioOn = !audioOn;
+        if (nextAudioOn) {
+          // Start both within the click gesture so browser autoplay rules allow playback.
+          await Promise.all([audioCtx.resume(), musicTrack.play()]);
+        } else {
+          musicTrack.pause();
+        }
+        audioOn = nextAudioOn;
+        masterGain.gain.setTargetAtTime(audioOn ? 0.6 : 0, audioCtx.currentTime, 0.4);
+        soundBtn.textContent = audioOn ? '🔊 Audio' : '🔇 Audio';
+        soundBtn.setAttribute('aria-pressed', String(audioOn));
+      } catch (error) {
+        musicTrack.pause();
+        console.warn('Could not start audio:', error);
+      } finally {
+        audioTogglePending = false;
+      }
     });
 
     window.addEventListener('keydown', (e) => {
@@ -6178,8 +6207,12 @@
     // Suspend audio rendering when tab is backgrounded
     document.addEventListener('visibilitychange', () => {
       if (!audioCtx) return;
-      if (document.hidden) audioCtx.suspend();
-      else if (audioOn) audioCtx.resume();
+      if (document.hidden) {
+        musicTrack.pause();
+        audioCtx.suspend().catch(console.warn);
+      } else if (audioOn) {
+        Promise.all([audioCtx.resume(), musicTrack.play()]).catch(console.warn);
+      }
     });
   </script>
 </body>
