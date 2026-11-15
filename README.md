@@ -1,71 +1,25 @@
-# Neon Rain City — 3D Cyberpunk Diorama
+![Illustrated neon city block in the rain](docs/neon-rain-city-cover.jpg)
 
-[![Three.js](https://img.shields.io/badge/Three.js-r160-000000?style=flat-square&logo=three.js)](https://threejs.org/)
-[![WebGL](https://img.shields.io/badge/WebGL-2.0-990000?style=flat-square&logo=webgl)](https://www.khronos.org/webgl/)
-[![Performance](https://img.shields.io/badge/FPS-60_Stable-00f3ff?style=flat-square)](https://github.com/agouti-ar/neon-rain-city)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+# Neon Rain City
 
-A lightweight, real-time 3D isometric diorama built with **pure Three.js** in a single standalone file (`index.html`). Designed with a low-poly / voxel cyberpunk aesthetic inspired by Night City, running at a rock-solid 60 FPS with zero external bundlers or build steps.
+A little cyberpunk city block you can orbit in your browser. Watch rain cross the neon-lit street, follow the drones, or turn on the soundtrack and let the camera drift.
 
-[**View Live Demo →**](https://agouti-ar.github.io/neon-rain-city/)
+[Open the live scene](https://agouti-ar.github.io/neon-rain-city/)
 
----
+## Explore the scene
 
-<p align="center">
-  <img src="preview.gif" alt="Neon Rain City 3D Diorama Demo" width="850"/>
-</p>
+Drag to orbit and scroll or pinch to zoom. Turn on **Audio** to hear *Tokyo Midnight Rain* alongside procedural rain and synth ambience. Audio pauses while the tab is hidden.
 
----
+The scene uses Three.js and procedural geometry for the architecture, overhead cables and rain effects. Fog and moving lights give the street depth. The camera and sound mix shift as you explore.
 
-## Overview & Architecture
+## Run locally
 
-The goal of this project was to achieve a dense, atmospheric cyberpunk environment while maintaining extreme rendering efficiency on mobile and integrated GPUs without relying on expensive post-processing passes.
+Serve the repository with a static HTTP server. There is no build step.
 
-### Key Highlights
-- **Single-File Zero-Dependency Setup:** Runs directly in any modern browser via ES Modules CDN. No `npm`, `vite`, or compilation required.
-- **Optimized PBR Materials:** Tuned `MeshStandardMaterial` (`roughness: 0.12`, `metalness: 0.28`) simulating wet asphalt and reflective lacquer without the 2x render overhead of real-time planar reflectors (`Reflector.js`).
-- **Balanced Lighting Scheme:** Dual-tone `HemisphereLight` coupled with carefully positioned local `PointLight` sources to highlight polygonal facets and create specular reflections.
-- **Volumetric Illusion without Post-Processing:** Depth is achieved through `THREE.FogExp2` and additive blended cone volumes (`AdditiveBlending`) on drone spotlights instead of full-screen bloom shaders.
-- **Procedural Particle Effects:** Rain streaks and animated ripples on wet pavement driven by optimized geometry loops.
-- **Procedural Cable Geometry:** Suspended industrial conduits modeled dynamically via `THREE.CatmullRomCurve3`.
-- **Cinematic Orbit Camera:** Smooth continuous turntable inspection with damping via `OrbitControls`.
-
----
-
-## Tech Stack
-
-- **Core Engine:** Three.js (r160)
-- **Renderer:** WebGL 2.0
-- **Camera Controls:** OrbitControls (ESM)
-- **Math & Curves:** CatmullRomCurve3, Vector3 kinematics
-
----
-
-## Running Locally
-
-Clone the repository:
-
-```bash
-git clone https://github.com/agouti-ar/neon-rain-city.git
-cd neon-rain-city
-```
-
-Serve it locally using any lightweight static web server:
-
-**Option A (Python 3):**
-```bash
+```sh
 python -m http.server 5173
 ```
 
-**Option B (Node.js):**
-```bash
-npx serve .
-```
+Open [localhost:5173](http://localhost:5173/) in your browser. The scene imports Three.js modules from a CDN.
 
-Then open `http://localhost:5173/index.html` in your browser.
-
----
-
-## License
-
-This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
+The cover is an AI-generated illustration inspired by the scene.
