@@ -2,6 +2,8 @@
 
 # Neon Rain City
 
+![Three.js](https://img.shields.io/badge/Three.js-000000?logo=threedotjs&logoColor=white) ![WebGL](https://img.shields.io/badge/WebGL-990000?logo=webgl&logoColor=white) ![GitHub%20Pages](https://img.shields.io/badge/GitHub%20Pages-222222?logo=githubpages&logoColor=white)
+
 A little cyberpunk city block you can orbit in your browser. Watch rain cross the neon-lit street, follow the drones, or turn on the soundtrack and let the camera drift.
 
 [Open the live scene](https://agouti-ar.github.io/neon-rain-city/)
